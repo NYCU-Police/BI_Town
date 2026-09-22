@@ -1,0 +1,39 @@
+# Local / staging stack. No Caddy — the shared host Caddy reverse-proxies
+# 127.0.0.1:${BI_TOWN_PORT} (default 8100).
+#
+# Godot web files are bind-mounted (not COPY'd into the image) so a new
+# export only needs a refresh, not an image rebuild.
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${BI_TOWN_PORT:-8100}:8000"
+    environment:
+      STATIC_WEB_DIR: /app/web
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+    volumes:
+      - ../game/build/web:/app/web:ro,z
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bi_town}
+      POSTGRES_USER: ${POSTGRES_USER:-bi_town}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

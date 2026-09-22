@@ -10,8 +10,6 @@ signal connection_changed(online: bool)
 
 const RECONNECT_INITIAL_SECONDS := 2.0
 const RECONNECT_MAX_SECONDS := 30.0
-const LOCAL_BACKEND_PORT := 8000
-const LOCAL_DEV_HOSTS := ["127.0.0.1", "localhost"]
 
 var _socket: WebSocketPeer
 var _resolved_url: String = ""
@@ -57,12 +55,10 @@ func _resolve_websocket_url() -> String:
 		push_error("JavaScriptBridge location unavailable; using desktop WebSocket URL")
 		return websocket_url
 
-	var hostname := str(location.hostname).to_lower()
-	if hostname in LOCAL_DEV_HOSTS:
-		# Page is on a static port; backend stays on :8000 during local dev.
-		# Production (Caddy routes /ws on the same host) uses the same-host rule below.
-		return "ws://%s:%s/ws" % [hostname, LOCAL_BACKEND_PORT]
-
+	# Same host + port as the page. Docker (:8100) and production Caddy
+	# both serve / , /api , /ws from one origin — do not special-case localhost
+	# to :8000 (that broke compose, where the published port is not 8000).
+	# Split-server local dev (serve_web.py + uvicorn) still uses ?ws=.
 	var page_protocol := str(location.protocol)
 	var ws_protocol := "wss:" if page_protocol == "https:" else "ws:"
 	return "%s//%s/ws" % [ws_protocol, str(location.host)]
