@@ -22,6 +22,8 @@ def test_health() -> None:
         "service": SERVICE_NAME,
         "version": VERSION,
     }
+    assert response.headers["cross-origin-opener-policy"] == "same-origin"
+    assert response.headers["cross-origin-embedder-policy"] == "require-corp"
 
 
 def test_world() -> None:
