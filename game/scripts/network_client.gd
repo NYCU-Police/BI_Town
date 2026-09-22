@@ -5,18 +5,24 @@ signal agent_updated(data: Dictionary)
 signal event_received(data: Dictionary)
 signal connection_changed(online: bool)
 
+## Desktop default. Web builds resolve the URL in _ready().
 @export var websocket_url: String = "ws://127.0.0.1:8000/ws"
 
 const RECONNECT_INITIAL_SECONDS := 2.0
 const RECONNECT_MAX_SECONDS := 30.0
+const LOCAL_BACKEND_PORT := 8000
+const LOCAL_DEV_HOSTS := ["127.0.0.1", "localhost"]
 
 var _socket: WebSocketPeer
+var _resolved_url: String = ""
 var _reconnect_delay: float = RECONNECT_INITIAL_SECONDS
 var _reconnect_timer: float = 0.0
 var _online: bool = false
 
 
 func _ready() -> void:
+	_resolved_url = _resolve_websocket_url()
+	print("WebSocket URL: ", _resolved_url)
 	_connect_now()
 
 
@@ -38,11 +44,44 @@ func _process(delta: float) -> void:
 			_handle_closed()
 
 
+func _resolve_websocket_url() -> String:
+	if not OS.has_feature("web"):
+		return websocket_url
+
+	var override_url := _websocket_url_from_query()
+	if not override_url.is_empty():
+		return override_url
+
+	var location: Variant = JavaScriptBridge.get_interface("location")
+	if location == null:
+		push_error("JavaScriptBridge location unavailable; using desktop WebSocket URL")
+		return websocket_url
+
+	var hostname := str(location.hostname).to_lower()
+	if hostname in LOCAL_DEV_HOSTS:
+		# Page is on a static port; backend stays on :8000 during local dev.
+		# Production (Caddy routes /ws on the same host) uses the same-host rule below.
+		return "ws://%s:%s/ws" % [hostname, LOCAL_BACKEND_PORT]
+
+	var page_protocol := str(location.protocol)
+	var ws_protocol := "wss:" if page_protocol == "https:" else "ws:"
+	return "%s//%s/ws" % [ws_protocol, str(location.host)]
+
+
+func _websocket_url_from_query() -> String:
+	var raw: Variant = JavaScriptBridge.eval(
+		"decodeURIComponent(new URLSearchParams(window.location.search).get('ws') || '')"
+	)
+	if raw == null:
+		return ""
+	return str(raw).strip_edges()
+
+
 func _connect_now() -> void:
 	_socket = WebSocketPeer.new()
-	var err := _socket.connect_to_url(websocket_url)
+	var err := _socket.connect_to_url(_resolved_url)
 	if err != OK:
-		push_error("WebSocket connect_to_url failed (%s): %s" % [websocket_url, error_string(err)])
+		push_error("WebSocket connect_to_url failed (%s): %s" % [_resolved_url, error_string(err)])
 		_socket = null
 		_arm_reconnect()
 
