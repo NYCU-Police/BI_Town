@@ -65,6 +65,10 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.7.2
+    # Image default shell is dash; set -o pipefail needs bash.
+    defaults:
+      run:
+        shell: bash
     env:
       GODOT_VERSION: "4.7.2"
     steps:
