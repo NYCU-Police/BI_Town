@@ -83,24 +83,37 @@ jobs:
             "${STAGING_USER}@${STAGING_HOST}" \
             "cd /srv/bi_town && git fetch origin main && git reset --hard origin/main && cd deploy && docker compose --profile tunnel up -d --build"
 
+      # Primary check is on-box via SSH (Tailscale). Public HTTPS from the
+      # runner often gets Cloudflare 403 for datacenter IPs — that is a
+      # warning only, not a job failure.
       - name: Health check
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
         run: |
           set -euo pipefail
+          SSH="ssh -i ${HOME}/.ssh/staging_key -o IdentitiesOnly=yes -o BatchMode=yes"
           ok=0
           for i in $(seq 1 10); do
-            if body=$(curl -fsS "${HEALTH_URL}"); then
+            if body=$($SSH "${STAGING_USER}@${STAGING_HOST}" \
+              "curl -fsS http://127.0.0.1:8100/api/health"); then
               case "$body" in
                 *ok*)
-                  echo "health check passed on attempt ${i}"
+                  echo "local health check passed on attempt ${i}"
                   ok=1
                   break
                   ;;
               esac
             fi
-            echo "health check attempt ${i}/10 failed; retrying in 6s"
+            echo "local health check attempt ${i}/10 failed; retrying in 6s"
             sleep 6
           done
           if [ "$ok" -ne 1 ]; then
-            echo "health check failed after 10 attempts"
+            echo "local health check failed after 10 attempts"
             exit 1
+          fi
+          if curl -fsS "${HEALTH_URL}" >/dev/null; then
+            echo "public health check passed"
+          else
+            echo "::warning::public health check failed (Cloudflare may block CI egress); local check already passed"
           fi
