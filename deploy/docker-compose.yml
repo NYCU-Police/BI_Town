@@ -1,8 +1,9 @@
-# Local / staging stack. No Caddy — the shared host Caddy reverse-proxies
-# 127.0.0.1:${BI_TOWN_PORT} (default 8100).
+# One compose file for local and staging.
+# Local:    docker compose up --build
+# Staging:  docker compose --profile tunnel up -d --build
 #
-# Godot web files are bind-mounted (not COPY'd into the image) so a new
-# export only needs a refresh, not an image rebuild.
+# Godot web files are bind-mounted (not COPY'd). :z is for SELinux;
+# on Ubuntu it is a no-op.
 
 services:
   backend:
@@ -33,6 +34,17 @@ services:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
+
+  # Only started with --profile tunnel (staging). Local `up` skips it.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
   postgres_data:

@@ -1,0 +1,106 @@
+# Staging CD. Triggered only after the CI workflow on main succeeds.
+# No push trigger — a failed CI must never deploy.
+# Secrets live in the GitHub environment "staging". Never echo them.
+
+name: Deploy staging
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: bi-town-staging
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy:
+    name: deploy-staging
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      HEALTH_URL: https://bitown.aicanhelp.app/api/health
+    steps:
+      # Artifact was uploaded by CI job godot-export-check as godot-web-build.
+      - name: Download Godot web artifact from the CI run
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-web-build
+          path: godot-web-build
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Connect Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      # Key is written via printenv so it never appears on the command line.
+      - name: Configure SSH
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          umask 177
+          printenv STAGING_SSH_KEY > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+          ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
+
+      # --delete keeps /srv/bi_town/game/build/web in sync with this CI export.
+      # deploy/.env is outside this path and is never touched.
+      - name: Rsync Godot web build to staging
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -i ${HOME}/.ssh/staging_key -o IdentitiesOnly=yes -o BatchMode=yes"
+          $SSH "${STAGING_USER}@${STAGING_HOST}" "mkdir -p /srv/bi_town/game/build/web"
+          rsync -az --delete \
+            -e "$SSH" \
+            ./godot-web-build/ \
+            "${STAGING_USER}@${STAGING_HOST}:/srv/bi_town/game/build/web/"
+
+      # reset --hard is idempotent. .env is not in git, so it survives.
+      - name: Deploy on staging host
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i "${HOME}/.ssh/staging_key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            "${STAGING_USER}@${STAGING_HOST}" \
+            "cd /srv/bi_town && git fetch origin main && git reset --hard origin/main && cd deploy && docker compose --profile tunnel up -d --build"
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 10); do
+            if body=$(curl -fsS "${HEALTH_URL}"); then
+              case "$body" in
+                *ok*)
+                  echo "health check passed on attempt ${i}"
+                  ok=1
+                  break
+                  ;;
+              esac
+            fi
+            echo "health check attempt ${i}/10 failed; retrying in 6s"
+            sleep 6
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "health check failed after 10 attempts"
+            exit 1
+          fi
