@@ -50,13 +50,15 @@ def _mount_godot_web(application: FastAPI) -> None:
     try:
         if not static_dir.is_dir():
             logger.warning(
-                "STATIC_WEB_DIR does not exist (%s); Godot web client will not be served",
+                "STATIC_WEB_DIR does not exist (%s); "
+                "Godot web client will not be served",
                 static_dir,
             )
             return
         if not (static_dir / "index.html").is_file():
             logger.warning(
-                "STATIC_WEB_DIR has no index.html (%s); Godot web client will not be served",
+                "STATIC_WEB_DIR has no index.html (%s); "
+                "Godot web client will not be served",
                 static_dir,
             )
             return
