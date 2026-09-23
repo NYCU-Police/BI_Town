@@ -1,0 +1,15 @@
+# Reasonable lint for Python 3.12. No blanket ignore of real defects.
+target-version = "py312"
+line-length = 88
+
+[lint]
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "I",  # import order
+    "UP", # pyupgrade
+    "B",  # bugbear
+]
+
+[lint.isort]
+known-first-party = ["app"]

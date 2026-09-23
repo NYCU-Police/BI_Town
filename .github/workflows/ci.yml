@@ -1,0 +1,112 @@
+# BI_Town CI — no secrets. Any job failing fails the workflow.
+# Triggers: PRs into main, and a second run after merge (last gate before CD).
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-test:
+    name: backend-test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: pytest
+        run: pytest -v
+
+      - name: ruff
+        working-directory: .
+        run: |
+          pip install ruff
+          ruff check backend/
+
+  docker-validate:
+    name: docker-validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build backend/
+
+      - name: Validate compose (empty TUNNEL_TOKEN is ok)
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+        working-directory: deploy
+
+  # Local Godot 4.7.2. Image: barichello/godot-ci:4.7.2 (matches editor).
+  # Templates ship in the image; we copy them to $HOME so headless export finds them.
+  godot-export-check:
+    name: godot-export-check
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.7.2
+    env:
+      GODOT_VERSION: "4.7.2"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install export templates
+        run: |
+          set -euo pipefail
+          TEMPLATE_SRC="/root/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          TEMPLATE_DST="${HOME}/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          if [ ! -d "${TEMPLATE_SRC}" ]; then
+            echo "Export templates missing at ${TEMPLATE_SRC}"
+            exit 1
+          fi
+          mkdir -p "$(dirname "${TEMPLATE_DST}")"
+          if [ "${TEMPLATE_SRC}" != "${TEMPLATE_DST}" ] && [ ! -d "${TEMPLATE_DST}" ]; then
+            cp -a "${TEMPLATE_SRC}" "${TEMPLATE_DST}"
+          fi
+          echo "Templates ready at ${TEMPLATE_DST}"
+          ls "${TEMPLATE_DST}" | head
+
+      - name: Export Web (headless)
+        run: |
+          set -euo pipefail
+          EXPORT_DIR="${GITHUB_WORKSPACE}/godot-web-ci"
+          mkdir -p "${EXPORT_DIR}"
+          cd game
+          godot --headless --import --quit
+          godot --headless --export-release "Web" "${EXPORT_DIR}/index.html"
+
+      - name: Verify index.html and index.wasm
+        run: |
+          set -euo pipefail
+          EXPORT_DIR="${GITHUB_WORKSPACE}/godot-web-ci"
+          test -s "${EXPORT_DIR}/index.html"
+          test -s "${EXPORT_DIR}/index.wasm"
+          ls -la "${EXPORT_DIR}"
+
+      - name: Upload Godot web build
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-web-build
+          path: godot-web-ci/
+          retention-days: 7

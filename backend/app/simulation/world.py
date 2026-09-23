@@ -96,5 +96,9 @@ class World:
             self.time,
             GAME_MINUTES_PER_TICK,
         )
-        changed_agents = [self.agents[agent_id] for agent_id in self.agents if agent_id in changed_ids]
+        changed_agents = [
+            self.agents[agent_id]
+            for agent_id in self.agents
+            if agent_id in changed_ids
+        ]
         return TickResult(events=new_events, changed_agents=changed_agents)
