@@ -7,11 +7,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-# Placed after COPY so a new commit does not bust the pip layer.
+# After pip install and COPY. A new commit hash reruns only this ENV
+# step; it does not invalidate the dependency layer above.
 ARG GIT_COMMIT=unknown
-ARG DEPLOYED_AT=unknown
 ENV GIT_COMMIT=${GIT_COMMIT}
-ENV DEPLOYED_AT=${DEPLOYED_AT}
 
 EXPOSE 8000
 
