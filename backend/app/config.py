@@ -5,6 +5,12 @@ import os
 SERVICE_NAME = "BI_Town"
 VERSION = "0.1.0"
 
+
+def deployment_value(name: str) -> str:
+    """Identity baked in at image build. Blank means this process was not deployed."""
+    value = os.environ.get(name, "").strip()
+    return value or "unknown"
+
 # Godot web export directory. Empty/missing = API-only (tests, local uvicorn).
 STATIC_WEB_DIR = os.environ.get("STATIC_WEB_DIR", "")
 
