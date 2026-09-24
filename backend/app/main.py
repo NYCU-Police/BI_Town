@@ -21,6 +21,25 @@ logger = logging.getLogger(__name__)
 COOP_HEADER = "same-origin"
 COEP_HEADER = "require-corp"
 
+# These names are stable across exports, so a shared cache can keep serving
+# yesterday's wasm. no-cache still allows ETag revalidation (304).
+GODOT_SHELL_PATHS = frozenset(
+    {
+        "/",
+        "/index.html",
+        "/index.js",
+        "/index.wasm",
+        "/index.pck",
+        "/build_info.json",
+    }
+)
+
+
+def cache_control_for_godot_shell(path: str) -> str | None:
+    if path in GODOT_SHELL_PATHS:
+        return "no-cache"
+    return None
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -90,6 +109,9 @@ async def coop_coep_headers(
     response = await call_next(request)
     response.headers["Cross-Origin-Opener-Policy"] = COOP_HEADER
     response.headers["Cross-Origin-Embedder-Policy"] = COEP_HEADER
+    cache_control = cache_control_for_godot_shell(request.url.path)
+    if cache_control is not None:
+        response.headers["Cache-Control"] = cache_control
     return response
 
 
