@@ -10,9 +10,11 @@ on:
     types: [completed]
     branches: [main]
 
+# Queue. Cancelling this job does not stop the SSH session already
+# running git reset / docker compose on the single staging host.
 concurrency:
   group: bi-town-staging
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -83,16 +85,20 @@ jobs:
           STAGING_USER: ${{ secrets.STAGING_USER }}
         run: |
           set -euo pipefail
+          if ! printf '%s' "${EXPECTED_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "EXPECTED_SHA is not the triggering CI commit"
+            exit 1
+          fi
           ssh -i "${HOME}/.ssh/staging_key" -o IdentitiesOnly=yes -o BatchMode=yes \
             "${STAGING_USER}@${STAGING_HOST}" \
-            bash -c 'set -euo pipefail
+            bash -c "set -euo pipefail
             cd /srv/bi_town
             git fetch origin main
-            git reset --hard origin/main
-            export GIT_COMMIT="$(git rev-parse HEAD)"
-            export DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git reset --hard ${EXPECTED_SHA}
+            export GIT_COMMIT=${EXPECTED_SHA}
+            export DEPLOYED_AT=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
             cd deploy
-            docker compose --profile tunnel up -d --build'
+            docker compose --profile tunnel up -d --build"
 
       # Local check hits 127.0.0.1. Public check curls the hostname from
       # this same host, so the request still crosses Cloudflare and the tunnel.
