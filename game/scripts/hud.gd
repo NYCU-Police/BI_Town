@@ -1,17 +1,23 @@
 extends CanvasLayer
 
+@onready var _title_label: Label = %Title
+@onready var _build_label: Label = %BuildLabel
 @onready var _time_label: Label = %TimeLabel
 @onready var _status_label: Label = %StatusLabel
 @onready var _agents_label: Label = %AgentsLabel
 @onready var _event_log: RichTextLabel = %EventLog
 
 var _agent_names: Dictionary = {}
+var _web_health_callback: Variant
 
 
 func _ready() -> void:
 	set_connection(false)
+	_title_label.text = "BI_Town"
+	_build_label.text = "commit —"
 	_time_label.text = "Day — --:--"
 	_agents_label.text = "Agents: 0"
+	_request_health()
 
 
 func apply_snapshot(data: Dictionary) -> void:
@@ -61,6 +67,97 @@ func set_connection(online: bool) -> void:
 	else:
 		_status_label.text = "Server  ● Offline"
 		_status_label.add_theme_color_override("font_color", Color(0.90, 0.32, 0.32))
+
+
+func _request_health() -> void:
+	if OS.has_feature("web"):
+		_request_health_web()
+		return
+	var http := HTTPRequest.new()
+	add_child(http)
+	http.request_completed.connect(_on_health_completed)
+	var err := http.request("http://127.0.0.1:8000/api/health")
+	if err != OK:
+		_show_unknown_identity()
+
+
+func _request_health_web() -> void:
+	# Relative /api/health follows the page origin (compose and production).
+	# Keep the callback alive; Godot drops it if nothing references it.
+	_web_health_callback = JavaScriptBridge.create_callback(_on_web_health)
+	var window: Variant = JavaScriptBridge.get_interface("window")
+	if window == null:
+		_show_unknown_identity()
+		return
+	window.biTownOnHealth = _web_health_callback
+	JavaScriptBridge.eval(
+		"""
+		fetch('/api/health').then(function (response) {
+			if (!response.ok) {
+				window.biTownOnHealth('');
+				return;
+			}
+			response.text().then(function (text) {
+				window.biTownOnHealth(text);
+			}).catch(function () {
+				window.biTownOnHealth('');
+			});
+		}).catch(function () {
+			window.biTownOnHealth('');
+		});
+		""",
+		true,
+	)
+
+
+func _on_web_health(args: Array) -> void:
+	var text := ""
+	if args.size() > 0 and args[0] != null:
+		text = str(args[0])
+	if text.is_empty():
+		_show_unknown_identity()
+		return
+	_apply_health_text(text)
+
+
+func _on_health_completed(
+	result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray,
+) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
+		_show_unknown_identity()
+		return
+	_apply_health_text(body.get_string_from_utf8())
+
+
+func _show_unknown_identity() -> void:
+	_build_label.text = "commit unknown\ndeployed unknown"
+
+
+func _apply_health_text(text: String) -> void:
+	var parsed: Variant = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		_show_unknown_identity()
+		return
+	var data: Dictionary = parsed
+	var service := str(data.get("service", "BI_Town"))
+	var version := str(data.get("version", ""))
+	if version.is_empty():
+		_title_label.text = service
+	else:
+		_title_label.text = "%s v%s" % [service, version]
+	var commit := str(data.get("git_commit", "unknown"))
+	if commit.is_empty():
+		commit = "unknown"
+	var shown := commit
+	if commit != "unknown" and commit.length() > 7:
+		shown = commit.substr(0, 7)
+	var deployed := str(data.get("deployed_at", "unknown"))
+	if deployed.is_empty():
+		deployed = "unknown"
+	_build_label.text = "commit %s\ndeployed %s" % [shown, deployed]
 
 
 func _set_clock(data: Dictionary) -> void:

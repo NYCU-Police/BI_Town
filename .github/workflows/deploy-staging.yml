@@ -73,6 +73,7 @@ jobs:
             "${STAGING_USER}@${STAGING_HOST}:/srv/bi_town/game/build/web/"
 
       # reset --hard is idempotent. .env is not in git, so it survives.
+      # GIT_COMMIT is an image build arg. DEPLOYED_AT is container env at create time.
       - name: Deploy on staging host
         env:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
@@ -81,11 +82,17 @@ jobs:
           set -euo pipefail
           ssh -i "${HOME}/.ssh/staging_key" -o IdentitiesOnly=yes -o BatchMode=yes \
             "${STAGING_USER}@${STAGING_HOST}" \
-            "cd /srv/bi_town && git fetch origin main && git reset --hard origin/main && cd deploy && docker compose --profile tunnel up -d --build"
+            bash -c 'set -euo pipefail
+            cd /srv/bi_town
+            git fetch origin main
+            git reset --hard origin/main
+            export GIT_COMMIT="$(git rev-parse HEAD)"
+            export DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            cd deploy
+            docker compose --profile tunnel up -d --build'
 
-      # Primary check is on-box via SSH (Tailscale). Public HTTPS from the
-      # runner often gets Cloudflare 403 for datacenter IPs — that is a
-      # warning only, not a job failure.
+      # Local check is on-box via SSH. Public check must see the same SHA.
+      # Both retry every 3s for up to 60s. A mismatch fails the job.
       - name: Health check
         env:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
@@ -93,27 +100,80 @@ jobs:
         run: |
           set -euo pipefail
           SSH="ssh -i ${HOME}/.ssh/staging_key -o IdentitiesOnly=yes -o BatchMode=yes"
-          ok=0
-          for i in $(seq 1 10); do
-            if body=$($SSH "${STAGING_USER}@${STAGING_HOST}" \
-              "curl -fsS http://127.0.0.1:8100/api/health"); then
-              case "$body" in
-                *ok*)
-                  echo "local health check passed on attempt ${i}"
-                  ok=1
-                  break
-                  ;;
-              esac
-            fi
-            echo "local health check attempt ${i}/10 failed; retrying in 6s"
-            sleep 6
-          done
-          if [ "$ok" -ne 1 ]; then
-            echo "local health check failed after 10 attempts"
+          expected="$($SSH "${STAGING_USER}@${STAGING_HOST}" "git -C /srv/bi_town rev-parse HEAD")"
+          expected="$(printf '%s' "$expected" | tr -d '[:space:]')"
+          if [ -z "$expected" ]; then
+            echo "could not read deployed commit"
             exit 1
           fi
-          if curl -fsS "${HEALTH_URL}" >/dev/null; then
-            echo "public health check passed"
-          else
-            echo "::warning::public health check failed (Cloudflare may block CI egress); local check already passed"
+
+          accept_body() {
+            printf '%s' "$1" | python3 -c 'import json,sys; e=sys.argv[1]; b=json.load(sys.stdin); errs=[]; errs.append("status") if b.get("status")!="ok" else None; errs.append("commit got %s want %s"%(b.get("git_commit"),e)) if b.get("git_commit")!=e else None; errs.append("deployed_at") if (b.get("deployed_at") or "") in ("","unknown") else None; print("; ".join(errs)); sys.exit(1 if errs else 0)' "$expected"
+          }
+
+          body_after_headers() {
+            printf '%s' "$1" | python3 -c 'import sys; raw=sys.stdin.read(); _, sep, body=raw.partition("\r\n\r\n"); sys.stdout.write(body if sep else raw.partition("\n\n")[2])'
+          }
+
+          sleep_before_retry() {
+            local elapsed=$((SECONDS - start))
+            local remaining=$((60 - elapsed))
+            if [ "$remaining" -le 0 ]; then
+              return 1
+            fi
+            local pause=3
+            if [ "$remaining" -lt 3 ]; then
+              pause=$remaining
+            fi
+            echo "$1 attempt $2 failed (${3}); retrying in ${pause}s"
+            sleep "$pause"
+          }
+
+          start=$SECONDS
+          attempt=0
+          local_ok=0
+          while [ $((SECONDS - start)) -lt 60 ]; do
+            attempt=$((attempt + 1))
+            reason="request failed"
+            if raw=$($SSH "${STAGING_USER}@${STAGING_HOST}" \
+              "curl -fsS -D - http://127.0.0.1:8100/api/health"); then
+              if ! printf '%s' "$raw" | grep -qi 'cache-control:.*no-store'; then
+                reason="missing Cache-Control: no-store"
+              elif reason=$(accept_body "$(body_after_headers "$raw")"); then
+                echo "local health check passed on attempt ${attempt}"
+                body_after_headers "$raw"
+                local_ok=1
+                break
+              fi
+            fi
+            if ! sleep_before_retry "local health check" "$attempt" "$reason"; then
+              break
+            fi
+          done
+          if [ "$local_ok" -ne 1 ]; then
+            echo "local health check failed after ${attempt} attempts"
+            exit 1
+          fi
+
+          start=$SECONDS
+          attempt=0
+          public_ok=0
+          while [ $((SECONDS - start)) -lt 60 ]; do
+            attempt=$((attempt + 1))
+            reason="request failed"
+            if body=$(curl -fsS "${HEALTH_URL}"); then
+              if reason=$(accept_body "$body"); then
+                echo "public health check passed on attempt ${attempt}"
+                echo "$body"
+                public_ok=1
+                break
+              fi
+            fi
+            if ! sleep_before_retry "public health check" "$attempt" "$reason"; then
+              break
+            fi
+          done
+          if [ "$public_ok" -ne 1 ]; then
+            echo "public health check failed after ${attempt} attempts"
+            exit 1
           fi

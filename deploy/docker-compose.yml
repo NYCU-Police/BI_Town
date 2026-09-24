@@ -10,11 +10,15 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     ports:
       - "127.0.0.1:${BI_TOWN_PORT:-8100}:8000"
     environment:
       STATIC_WEB_DIR: /app/web
       ENVIRONMENT: ${ENVIRONMENT:-staging}
+      # Set when the container is created, not baked into the image.
+      DEPLOYED_AT: ${DEPLOYED_AT:-unknown}
     volumes:
       - ../game/build/web:/app/web:ro,z
     depends_on:

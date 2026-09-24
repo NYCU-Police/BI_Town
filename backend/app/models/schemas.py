@@ -10,6 +10,8 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
+    git_commit: str
+    deployed_at: str
 
 
 class Position(BaseModel):

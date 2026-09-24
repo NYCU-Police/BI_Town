@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app import state
@@ -14,16 +15,41 @@ from app.simulation.clock import advance_clock
 client = TestClient(app)
 
 
-def test_health() -> None:
+def test_health(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GIT_COMMIT", raising=False)
+    monkeypatch.delenv("DEPLOYED_AT", raising=False)
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
         "service": SERVICE_NAME,
         "version": VERSION,
+        "git_commit": "unknown",
+        "deployed_at": "unknown",
     }
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["cross-origin-opener-policy"] == "same-origin"
     assert response.headers["cross-origin-embedder-policy"] == "require-corp"
+
+
+def test_health_reports_deploy_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIT_COMMIT", "abc123def")
+    monkeypatch.setenv("DEPLOYED_AT", "2026-09-24T10:00:00Z")
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["git_commit"] == "abc123def"
+    assert body["deployed_at"] == "2026-09-24T10:00:00Z"
+
+
+def test_health_blank_identity_is_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIT_COMMIT", "  ")
+    monkeypatch.setenv("DEPLOYED_AT", "")
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["git_commit"] == "unknown"
+    assert body["deployed_at"] == "unknown"
 
 
 def test_world() -> None:

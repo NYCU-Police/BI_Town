@@ -9,7 +9,7 @@
 - 架構：server-authoritative。World state 的唯一來源是 FastAPI backend。Godot client 只渲染 server 送來的狀態，不自行推進時鐘、不決定 NPC 去向。
 - World 存在 process 記憶體（`backend/app/state.py` 的 `World` singleton）。重啟即重置。Postgres 與 Redis 只在 Docker Compose 裡待命，backend 程式尚未連線。
 - 開局：Day 1、08:00。兩個 rule-based agent：Mina、Alex。地點：home、cafe、office、park。
-- 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`。
+- 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`（含 `version`、`git_commit`、`deployed_at`）。部署步驟與回滾見 `docs/DEPLOY.md`。
 
 ## 2. 目前架構
 
@@ -32,7 +32,7 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
   - `world_snapshot`：連線當下整包狀態（day、time、agents、events）。
   - `agent_update`：本 tick 有變動的 agents，附上 day 與 time。
   - `world_event`：本 tick 新增的 `left` / `entered`。
-- HTTP API（prefix `/api`）：`GET /health`、`GET /world`、`GET /agents`、`GET /events`。
+- HTTP API（prefix `/api`）：`GET /health`、`GET /world`、`GET /agents`、`GET /events`。`/health` 帶 `Cache-Control: no-store`。`git_commit` 來自映像建置參數，`deployed_at` 來自容器建立時的環境變數；沒設定時是 `unknown`。Web export 的 HUD 用相對路徑 `/api/health` 取名稱、版本、commit、部署時間；請求失敗只顯示 `unknown`，遊戲繼續跑。
 - Godot web export 由 backend 以靜態檔提供。`STATIC_WEB_DIR` 有值且目錄內有 `index.html` 才 mount 在 `/`。本機只跑 uvicorn、沒設這個變數時，只提供 API 與 WebSocket。
 - HTTP 回應帶 `Cross-Origin-Opener-Policy: same-origin` 與 `Cross-Origin-Embedder-Policy: require-corp`（Godot 4 WASM）。
 - Docker Compose 一份檔同時給本機與 staging。backend 把 host 的 `game/build/web` 唯讀掛進容器 `/app/web`。對外 port 綁 `127.0.0.1:${BI_TOWN_PORT:-8100}` → 容器 8000。
@@ -143,8 +143,8 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
    - GitHub environment：`staging`。secret 只放在該 environment，workflow 不印出 secret。
    - Tailscale（`tag:ci`）連上 staging host，SSH。
    - rsync Godot web artifact 到 `/srv/bi_town/game/build/web/`（`--delete`）。不碰 host 上的 `deploy/.env`。
-   - host 上：`cd /srv/bi_town && git fetch origin main && git reset --hard origin/main`，然後 `cd deploy && docker compose --profile tunnel up -d --build`。
-   - 健康檢查：SSH 進 host 打 `http://127.0.0.1:8100/api/health`，最多 10 次、間隔 6 秒，body 須含 `ok`。runner 對外打 `https://bitown.aicanhelp.app/api/health` 若失敗只發 warning（Cloudflare 可能擋 CI 出口），不讓 job 失敗。
+   - host 上：`cd /srv/bi_town && git fetch origin main && git reset --hard origin/main`。`GIT_COMMIT`（完整 SHA）是映像建置參數；`DEPLOYED_AT`（UTC）在 `docker compose up` 時寫進容器環境。
+   - 健康檢查：本機 `http://127.0.0.1:8100/api/health` 與公開 `https://bitown.aicanhelp.app/api/health` 都要過。每 3 秒一次，最多 60 秒。`status` 須為 `ok`，`git_commit` 須等於主機 `HEAD`，`deployed_at` 不可為 `unknown`。本機回應還須帶 `Cache-Control: no-store`。公開網址的 SHA 對不上也會讓 job 失敗。
    - concurrency group `bi-town-staging`，新的部署會取消進行中的部署。
 
 ## 5. 關鍵約定

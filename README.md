@@ -7,6 +7,8 @@ BI_Town (Behavioral Intelligence Town) 是一個 AI-native social simulation。
 
 目前是 **v0.1**：只建立 pipeline 骨架，不含 LLM 或 AI agent。
 
+部署與回滾見 [docs/DEPLOY.md](docs/DEPLOY.md)。`GET /api/health` 回傳版本、git commit 與部署時間。
+
 ## Local Development
 
 需求：Python 3.12+
