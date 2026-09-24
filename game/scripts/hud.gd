@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+@onready var _title_label: Label = %Title
+@onready var _build_label: Label = %BuildLabel
 @onready var _time_label: Label = %TimeLabel
 @onready var _status_label: Label = %StatusLabel
 @onready var _agents_label: Label = %AgentsLabel
@@ -10,8 +12,11 @@ var _agent_names: Dictionary = {}
 
 func _ready() -> void:
 	set_connection(false)
+	_title_label.text = "BI_Town"
+	_build_label.text = "commit —"
 	_time_label.text = "Day — --:--"
 	_agents_label.text = "Agents: 0"
+	_request_health()
 
 
 func apply_snapshot(data: Dictionary) -> void:
@@ -61,6 +66,75 @@ func set_connection(online: bool) -> void:
 	else:
 		_status_label.text = "Server  ● Offline"
 		_status_label.add_theme_color_override("font_color", Color(0.90, 0.32, 0.32))
+
+
+func _request_health() -> void:
+	var http := HTTPRequest.new()
+	add_child(http)
+	http.request_completed.connect(_on_health_completed)
+	var err := http.request(_health_url())
+	if err != OK:
+		push_error("GET /api/health failed to start: %s" % error_string(err))
+
+
+func _on_health_completed(
+	result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray,
+) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
+		push_error("GET /api/health failed (result=%s code=%s)" % [result, response_code])
+		return
+	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_error("health JSON parse failed")
+		return
+	var data: Dictionary = parsed
+	var service := str(data.get("service", "BI_Town"))
+	var version := str(data.get("version", ""))
+	if version.is_empty():
+		_title_label.text = service
+	else:
+		_title_label.text = "%s v%s" % [service, version]
+	var commit := str(data.get("git_commit", "unknown"))
+	var shown := commit
+	if commit != "unknown" and commit.length() > 7:
+		shown = commit.substr(0, 7)
+	var deployed := str(data.get("deployed_at", "unknown"))
+	_build_label.text = "commit %s\ndeployed %s" % [shown, deployed]
+
+
+func _health_url() -> String:
+	if not OS.has_feature("web"):
+		return "http://127.0.0.1:8000/api/health"
+
+	var override_url := _websocket_override_from_query()
+	if not override_url.is_empty():
+		return _http_health_from_websocket(override_url)
+
+	var location: Variant = JavaScriptBridge.get_interface("location")
+	if location == null:
+		push_error("JavaScriptBridge location unavailable; using desktop health URL")
+		return "http://127.0.0.1:8000/api/health"
+	return "%s//%s/api/health" % [str(location.protocol), str(location.host)]
+
+
+func _websocket_override_from_query() -> String:
+	var raw: Variant = JavaScriptBridge.eval(
+		"decodeURIComponent(new URLSearchParams(window.location.search).get('ws') || '')"
+	)
+	if raw == null:
+		return ""
+	return str(raw).strip_edges()
+
+
+func _http_health_from_websocket(websocket_url: String) -> String:
+	var http_url := websocket_url.replace("wss://", "https://").replace("ws://", "http://")
+	var path_at := http_url.find("/ws")
+	if path_at >= 0:
+		http_url = http_url.substr(0, path_at)
+	return http_url.trim_suffix("/") + "/api/health"
 
 
 func _set_clock(data: Dictionary) -> void:
