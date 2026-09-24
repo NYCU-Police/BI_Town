@@ -26,6 +26,9 @@ jobs:
     environment: staging
     env:
       HEALTH_URL: https://bitown.aicanhelp.app/api/health
+      # SHA of the CI run that triggered this deploy. github.sha in a
+      # workflow_run job is the default branch tip, not that CI commit.
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       # Artifact was uploaded by CI job godot-export-check as godot-web-build.
       - name: Download Godot web artifact from the CI run
@@ -91,8 +94,9 @@ jobs:
             cd deploy
             docker compose --profile tunnel up -d --build'
 
-      # Local check is on-box via SSH. Public check must see the same SHA.
-      # Both retry every 3s for up to 60s. A mismatch fails the job.
+      # Local check hits 127.0.0.1. Public check curls the hostname from
+      # this same host, so the request still crosses Cloudflare and the tunnel.
+      # GitHub runner IPs are blocked with 403. Both retry every 3s for 60s.
       - name: Health check
         env:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
@@ -100,12 +104,25 @@ jobs:
         run: |
           set -euo pipefail
           SSH="ssh -i ${HOME}/.ssh/staging_key -o IdentitiesOnly=yes -o BatchMode=yes"
-          expected="$($SSH "${STAGING_USER}@${STAGING_HOST}" "git -C /srv/bi_town rev-parse HEAD")"
-          expected="$(printf '%s' "$expected" | tr -d '[:space:]')"
-          if [ -z "$expected" ]; then
-            echo "could not read deployed commit"
+          expected="${EXPECTED_SHA}"
+          if ! printf '%s' "$expected" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "EXPECTED_SHA is not the triggering CI commit"
             exit 1
           fi
+
+          # Curl the public hostname on the deploy host. Do not call it
+          # from the runner, and do not fall back to 127.0.0.1.
+          curl_public() {
+            case "$1" in
+              https://bitown.aicanhelp.app/*) ;;
+              *)
+                echo "refusing public url: $1" >&2
+                return 1
+                ;;
+            esac
+            $SSH "${STAGING_USER}@${STAGING_HOST}" \
+              "curl -fsS --max-time 20 --retry 0 $(printf '%q' "$1")"
+          }
 
           accept_body() {
             printf '%s' "$1" | python3 -c 'import json,sys; e=sys.argv[1]; b=json.load(sys.stdin); errs=[]; errs.append("status") if b.get("status")!="ok" else None; errs.append("commit got %s want %s"%(b.get("git_commit"),e)) if b.get("git_commit")!=e else None; errs.append("deployed_at") if (b.get("deployed_at") or "") in ("","unknown") else None; print("; ".join(errs)); sys.exit(1 if errs else 0)' "$expected"
@@ -161,7 +178,7 @@ jobs:
           while [ $((SECONDS - start)) -lt 60 ]; do
             attempt=$((attempt + 1))
             reason="request failed"
-            if body=$(curl -fsS "${HEALTH_URL}"); then
+            if body=$(curl_public "${HEALTH_URL}"); then
               if reason=$(accept_body "$body"); then
                 echo "public health check passed on attempt ${attempt}"
                 echo "$body"
