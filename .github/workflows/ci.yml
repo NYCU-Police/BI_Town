@@ -94,11 +94,19 @@ jobs:
       - name: Export Web (headless)
         run: |
           set -euo pipefail
+          if ! printf '%s' "${GITHUB_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "GITHUB_SHA is not a 40-character hex commit"
+            exit 1
+          fi
+          # Stamped before export so the pck can carry it, then copied loose
+          # so the deployed site can serve /build_info.json.
+          printf '{"commit":"%s"}\n' "${GITHUB_SHA}" > game/build_info.json
           EXPORT_DIR="${GITHUB_WORKSPACE}/godot-web-ci"
           mkdir -p "${EXPORT_DIR}"
           cd game
           godot --headless --import --quit
           godot --headless --export-release "Web" "${EXPORT_DIR}/index.html"
+          cp build_info.json "${EXPORT_DIR}/build_info.json"
 
       - name: Verify index.html and index.wasm
         run: |
@@ -106,6 +114,8 @@ jobs:
           EXPORT_DIR="${GITHUB_WORKSPACE}/godot-web-ci"
           test -s "${EXPORT_DIR}/index.html"
           test -s "${EXPORT_DIR}/index.wasm"
+          test -s "${EXPORT_DIR}/build_info.json"
+          grep -F "${GITHUB_SHA}" "${EXPORT_DIR}/build_info.json"
           ls -la "${EXPORT_DIR}"
 
       - name: Upload Godot web build

@@ -1,5 +1,5 @@
-# Staging CD. Triggered only after the CI workflow on main succeeds.
-# No push trigger — a failed CI must never deploy.
+# Staging CD. Runs only after CI succeeds for a push to main.
+# pull_request CI must not deploy. A failed CI must never deploy.
 # Secrets live in the GitHub environment "staging". Never echo them.
 
 name: Deploy staging
@@ -10,9 +10,11 @@ on:
     types: [completed]
     branches: [main]
 
+# Queue. Cancelling this job does not stop the SSH session already
+# running git reset / docker compose on the single staging host.
 concurrency:
   group: bi-town-staging
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -21,11 +23,16 @@ permissions:
 jobs:
   deploy:
     name: deploy-staging
-    if: github.event.workflow_run.conclusion == 'success'
+    # branches: [main] matches the triggering workflow's head branch.
+    # event == push rejects pull_request runs even if that filter is wrong.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     environment: staging
     env:
       HEALTH_URL: https://bitown.aicanhelp.app/api/health
+      BUILD_INFO_URL: https://bitown.aicanhelp.app/build_info.json
       # SHA of the CI run that triggered this deploy. github.sha in a
       # workflow_run job is the default branch tip, not that CI commit.
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -83,20 +90,26 @@ jobs:
           STAGING_USER: ${{ secrets.STAGING_USER }}
         run: |
           set -euo pipefail
+          if ! printf '%s' "${EXPECTED_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "EXPECTED_SHA is not the triggering CI commit"
+            exit 1
+          fi
           ssh -i "${HOME}/.ssh/staging_key" -o IdentitiesOnly=yes -o BatchMode=yes \
             "${STAGING_USER}@${STAGING_HOST}" \
-            bash -c 'set -euo pipefail
+            bash -c "set -euo pipefail
             cd /srv/bi_town
             git fetch origin main
-            git reset --hard origin/main
-            export GIT_COMMIT="$(git rev-parse HEAD)"
-            export DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            # Objects come from origin/main. The tree we build is EXPECTED_SHA.
+            git reset --hard ${EXPECTED_SHA}
+            export GIT_COMMIT=${EXPECTED_SHA}
+            export DEPLOYED_AT=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
             cd deploy
-            docker compose --profile tunnel up -d --build'
+            docker compose --profile tunnel up -d --build"
 
-      # Local check hits 127.0.0.1. Public check curls the hostname from
-      # this same host, so the request still crosses Cloudflare and the tunnel.
-      # GitHub runner IPs are blocked with 403. Both retry every 3s for 60s.
+      # Local check hits 127.0.0.1. Public /api/health and /build_info.json
+      # curl the hostname from this same host, so both still cross Cloudflare
+      # and the tunnel. GitHub runner IPs are blocked with 403.
+      # Each retries every 3s for up to 60s. A mismatch fails the job.
       - name: Health check
         env:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
@@ -192,5 +205,32 @@ jobs:
           done
           if [ "$public_ok" -ne 1 ]; then
             echo "public health check failed after ${attempt} attempts"
+            exit 1
+          fi
+
+          accept_build_info() {
+            printf '%s' "$1" | python3 -c 'import json,sys; e=sys.argv[1]; b=json.load(sys.stdin); got=b.get("commit") if isinstance(b, dict) else None; errs=[] if got==e else ["build_info commit got %s want %s"%(got, e)]; print("; ".join(errs)); sys.exit(1 if errs else 0)' "$expected"
+          }
+
+          start=$SECONDS
+          attempt=0
+          build_info_ok=0
+          while [ $((SECONDS - start)) -lt 60 ]; do
+            attempt=$((attempt + 1))
+            reason="request failed"
+            if body=$(curl_public "${BUILD_INFO_URL}"); then
+              if reason=$(accept_build_info "$body"); then
+                echo "public build_info check passed on attempt ${attempt}"
+                echo "$body"
+                build_info_ok=1
+                break
+              fi
+            fi
+            if ! sleep_before_retry "public build_info check" "$attempt" "$reason"; then
+              break
+            fi
+          done
+          if [ "$build_info_ok" -ne 1 ]; then
+            echo "public build_info check failed after ${attempt} attempts"
             exit 1
           fi
