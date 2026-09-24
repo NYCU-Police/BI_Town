@@ -1,5 +1,8 @@
 extends CanvasLayer
 
+const _MATCH_COLOR := Color(0.65, 0.67, 0.64)
+const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
+
 @onready var _title_label: Label = %Title
 @onready var _build_label: Label = %BuildLabel
 @onready var _time_label: Label = %TimeLabel
@@ -14,7 +17,7 @@ var _web_health_callback: Variant
 func _ready() -> void:
 	set_connection(false)
 	_title_label.text = "BI_Town"
-	_build_label.text = "commit —"
+	_render_identity(_read_local_frontend_commit(), "", "", false)
 	_time_label.text = "Day — --:--"
 	_agents_label.text = "Agents: 0"
 	_request_health()
@@ -78,32 +81,44 @@ func _request_health() -> void:
 	http.request_completed.connect(_on_health_completed)
 	var err := http.request("http://127.0.0.1:8000/api/health")
 	if err != OK:
-		_show_unknown_identity()
+		_render_identity(_read_local_frontend_commit(), "unknown", "unknown", true)
 
 
 func _request_health_web() -> void:
-	# Relative /api/health follows the page origin (compose and production).
+	# Loose /build_info.json is the export stamp. /api/health is the backend.
 	# Keep the callback alive; Godot drops it if nothing references it.
 	_web_health_callback = JavaScriptBridge.create_callback(_on_web_health)
 	var window: Variant = JavaScriptBridge.get_interface("window")
 	if window == null:
-		_show_unknown_identity()
+		_render_identity("unknown", "unknown", "unknown", true)
 		return
 	window.biTownOnHealth = _web_health_callback
 	JavaScriptBridge.eval(
 		"""
-		fetch('/api/health').then(function (response) {
+		function biTownFinish(infoText, healthText) {
+			window.biTownOnHealth(infoText || '', healthText || '');
+		}
+		fetch('/build_info.json').then(function (response) {
 			if (!response.ok) {
-				window.biTownOnHealth('');
-				return;
+				return '';
 			}
-			response.text().then(function (text) {
-				window.biTownOnHealth(text);
-			}).catch(function () {
-				window.biTownOnHealth('');
-			});
+			return response.text();
 		}).catch(function () {
-			window.biTownOnHealth('');
+			return '';
+		}).then(function (infoText) {
+			fetch('/api/health').then(function (response) {
+				if (!response.ok) {
+					biTownFinish(infoText, '');
+					return;
+				}
+				response.text().then(function (healthText) {
+					biTownFinish(infoText, healthText);
+				}).catch(function () {
+					biTownFinish(infoText, '');
+				});
+			}).catch(function () {
+				biTownFinish(infoText, '');
+			});
 		});
 		""",
 		true,
@@ -111,13 +126,17 @@ func _request_health_web() -> void:
 
 
 func _on_web_health(args: Array) -> void:
-	var text := ""
+	var info_text := ""
+	var health_text := ""
 	if args.size() > 0 and args[0] != null:
-		text = str(args[0])
-	if text.is_empty():
-		_show_unknown_identity()
+		info_text = str(args[0])
+	if args.size() > 1 and args[1] != null:
+		health_text = str(args[1])
+	var frontend := _commit_from_build_info(info_text)
+	if health_text.is_empty():
+		_render_identity(frontend, "unknown", "unknown", true)
 		return
-	_apply_health_text(text)
+	_apply_health_text(frontend, health_text)
 
 
 func _on_health_completed(
@@ -126,20 +145,33 @@ func _on_health_completed(
 	_headers: PackedStringArray,
 	body: PackedByteArray,
 ) -> void:
+	var frontend := _read_local_frontend_commit()
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
-		_show_unknown_identity()
+		_render_identity(frontend, "unknown", "unknown", true)
 		return
-	_apply_health_text(body.get_string_from_utf8())
+	_apply_health_text(frontend, body.get_string_from_utf8())
 
 
-func _show_unknown_identity() -> void:
-	_build_label.text = "commit unknown\ndeployed unknown"
+func _read_local_frontend_commit() -> String:
+	if not FileAccess.file_exists("res://build_info.json"):
+		return "unknown"
+	return _commit_from_build_info(FileAccess.get_file_as_string("res://build_info.json"))
 
 
-func _apply_health_text(text: String) -> void:
+func _commit_from_build_info(text: String) -> String:
 	var parsed: Variant = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
-		_show_unknown_identity()
+		return "unknown"
+	var commit := str(parsed.get("commit", "unknown")).strip_edges()
+	if commit.is_empty():
+		return "unknown"
+	return commit
+
+
+func _apply_health_text(frontend: String, text: String) -> void:
+	var parsed: Variant = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		_render_identity(frontend, "unknown", "unknown", true)
 		return
 	var data: Dictionary = parsed
 	var service := str(data.get("service", "BI_Town"))
@@ -148,16 +180,35 @@ func _apply_health_text(text: String) -> void:
 		_title_label.text = service
 	else:
 		_title_label.text = "%s v%s" % [service, version]
-	var commit := str(data.get("git_commit", "unknown"))
-	if commit.is_empty():
-		commit = "unknown"
-	var shown := commit
-	if commit != "unknown" and commit.length() > 7:
-		shown = commit.substr(0, 7)
-	var deployed := str(data.get("deployed_at", "unknown"))
+	var backend := str(data.get("git_commit", "unknown")).strip_edges()
+	if backend.is_empty():
+		backend = "unknown"
+	var deployed := str(data.get("deployed_at", "unknown")).strip_edges()
 	if deployed.is_empty():
 		deployed = "unknown"
-	_build_label.text = "commit %s\ndeployed %s" % [shown, deployed]
+	_render_identity(frontend, backend, deployed, true)
+
+
+func _render_identity(frontend: String, backend: String, deployed: String, settled: bool) -> void:
+	if frontend.is_empty():
+		frontend = "unknown"
+	var backend_text := backend if not backend.is_empty() else "…"
+	var deployed_text := deployed if not deployed.is_empty() else "…"
+	_build_label.text = "frontend %s\nbackend %s\ndeployed %s" % [
+		_short_commit(frontend),
+		_short_commit(backend_text),
+		deployed_text,
+	]
+	var color := _MATCH_COLOR
+	if settled and frontend != backend:
+		color = _MISMATCH_COLOR
+	_build_label.add_theme_color_override("font_color", color)
+
+
+func _short_commit(commit: String) -> String:
+	if commit != "unknown" and commit != "…" and commit.length() > 7:
+		return commit.substr(0, 7)
+	return commit
 
 
 func _set_clock(data: Dictionary) -> void:
