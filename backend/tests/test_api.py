@@ -27,6 +27,7 @@ def test_health(monkeypatch: pytest.MonkeyPatch) -> None:
         "git_commit": "unknown",
         "deployed_at": "unknown",
     }
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["cross-origin-opener-policy"] == "same-origin"
     assert response.headers["cross-origin-embedder-policy"] == "require-corp"
 
