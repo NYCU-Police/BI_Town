@@ -140,13 +140,13 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
    - `godot-export-check`：image `barichello/godot-ci:4.7.2`，headless export Web，確認 `index.html` 與 `index.wasm` 非空，artifact 名稱 `godot-web-build`（保留 7 天）。
 4. Merge 進 `main` 後 CI 再跑一次。這次成功才會觸發 CD。CD 沒有自己的 `push` trigger。
 5. CD（`.github/workflows/deploy-staging.yml`）：
-   - 條件：上游 CI workflow 結論為 success，且 branch 是 `main`。
+   - 條件：上游 CI 是 `push`、結論為 success，且 head branch 是 `main`。`pull_request` 的 CI 不部署。
    - GitHub environment：`staging`。secret 只放在該 environment，workflow 不印出 secret。
    - Tailscale（`tag:ci`）連上 staging host，SSH。
    - rsync Godot web artifact 到 `/srv/bi_town/game/build/web/`（`--delete`）。不碰 host 上的 `deploy/.env`。
    - host 上：`git fetch origin main` 後 `git reset --hard` 到觸發這次部署的 CI commit（`workflow_run.head_sha`）。`GIT_COMMIT` 用同一個 SHA，不讀主機 `HEAD`。`DEPLOYED_AT`（UTC）在 `docker compose up` 時寫進容器環境。
-   - 健康檢查：本機 `http://127.0.0.1:8100/api/health` 與公開 `https://bitown.aicanhelp.app/api/health` 都要過。公開網址是經 Tailscale SSH 在部署主機上 curl，仍走 Cloudflare 與 Tunnel，不從 GitHub runner 打。每 3 秒一次，最多 60 秒。`status` 須為 `ok`，`git_commit` 須等於該 CI commit，`deployed_at` 不可為 `unknown`。本機回應還須帶 `Cache-Control: no-store`。公開網址的 SHA 對不上也會讓 job 失敗。
-   - concurrency group `bi-town-staging`，`cancel-in-progress: false`。新的部署排隊。
+   - 健康檢查：本機 `http://127.0.0.1:8100/api/health`、公開 `https://bitown.aicanhelp.app/api/health`，以及公開 `https://bitown.aicanhelp.app/build_info.json` 都要過。公開網址是經 Tailscale SSH 在部署主機上 curl，仍走 Cloudflare 與 Tunnel，不從 GitHub runner 打。每 3 秒一次，最多 60 秒。`/api/health` 的 `status` 須為 `ok`，`git_commit` 須等於該 CI commit，`deployed_at` 不可為 `unknown`。本機回應還須帶 `Cache-Control: no-store`。`build_info.json` 的 `commit` 也須等於該 CI commit。對不上會讓 job 失敗。
+   - concurrency group `bi-town-staging`，`cancel-in-progress: false`。正在跑的不取消。排隊中只保留最新一個，中間的 pending 部署不會跑。
 
 ## 5. 關鍵約定
 

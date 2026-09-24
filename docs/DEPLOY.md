@@ -2,7 +2,7 @@
 
 staging 的對外網址是 https://bitown.aicanhelp.app。HTTPS 由 Cloudflare Tunnel 終止。應用只聽在主機的 `127.0.0.1:8100`，不對公網開 80 或 443。
 
-合併到 `main` 且 CI 成功之後，`.github/workflows/deploy-staging.yml` 會經 Tailscale SSH 到主機，在 `/srv/bi_town` 對齊 `origin/main`，再執行 `docker compose --profile tunnel up -d --build`。
+合併到 `main` 且該次 push 的 CI 成功之後，`.github/workflows/deploy-staging.yml` 會經 Tailscale SSH 到主機。主機先 `git fetch origin main` 取得物件，再 `git reset --hard` 到觸發這次部署的 CI commit（`workflow_run.head_sha`），不是 `origin/main`。然後執行 `docker compose --profile tunnel up -d --build`。PR 的 CI 不會部署。
 
 ## 密鑰放哪裡
 
@@ -42,7 +42,7 @@ curl -fsS http://127.0.0.1:8100/api/health
 
 ## 這次部署比對哪一個 commit
 
-Deploy staging 的 concurrency group 是 `bi-town-staging`，`cancel-in-progress` 為 false：新的部署排隊，不取消正在跑的那次。取消 GitHub job 停不掉主機上已經開始的 `git reset` 與 `docker compose`。
+Deploy staging 的 concurrency group 是 `bi-town-staging`，`cancel-in-progress` 為 false：正在跑的那次不會被取消。取消 GitHub job 停不掉主機上已經開始的 `git reset` 與 `docker compose`。排隊中的部署只保留最新一個。連續 merge 時，中間還在排隊、尚未開始的 commit 會被取消，不會單獨部署。
 
 比對用的 SHA 是觸發這次部署的 CI commit（`workflow_run.head_sha`，也就是那次 CI 的 `GITHUB_SHA`）。不是這支 deploy workflow 自己的 `github.sha`，也不是部署後主機上的 `HEAD`。`workflow_run` 裡的 `github.sha` 是 default branch 的尖端，可能已經往前走。
 
@@ -77,7 +77,7 @@ curl -sI -H 'If-None-Match: "<etag>"' https://bitown.aicanhelp.app/index.wasm
 3. 合併後 CI 在 `main` 再跑一次。成功才會觸發 Deploy staging。
 4. workflow 失敗時，主機停留在上一次成功建出來的容器。若部署步驟已跑完、只有後面的檢查失敗，線上可能已經是新版本，但 workflow 仍算失敗。
 
-公開網址檢查（`/api/health`，以及之後的 `/build_info.json`）是在部署主機上執行 `curl https://bitown.aicanhelp.app/...`。請求仍經過 Cloudflare 邊緣與 Tunnel，SHA 必須等於觸發這次部署的 CI commit（`workflow_run.head_sha`）。不從 GitHub runner 直接打公開網址：runner 的資料中心 IP 會被 Cloudflare 當成機器人回 403。這不是放寬檢查，也不要為了 runner 去改 Cloudflare 規則。本機 `127.0.0.1` 檢查另外保留。
+公開網址檢查（`/api/health` 與 `/build_info.json`）是在部署主機上執行 `curl https://bitown.aicanhelp.app/...`。請求仍經過 Cloudflare 邊緣與 Tunnel，SHA 必須等於觸發這次部署的 CI commit（`workflow_run.head_sha`）。不從 GitHub runner 直接打公開網址：runner 的資料中心 IP 會被 Cloudflare 當成機器人回 403。這不是放寬檢查，也不要為了 runner 去改 Cloudflare 規則。本機 `127.0.0.1` 檢查另外保留。
 
 ## 回滾
 
