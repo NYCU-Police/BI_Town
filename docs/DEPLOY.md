@@ -38,7 +38,37 @@ docker compose --profile tunnel up -d --build
 curl -fsS http://127.0.0.1:8100/api/health
 ```
 
-`git_commit` 應等於剛才的 `GIT_COMMIT`，`deployed_at` 不應是 `unknown`。瀏覽器開啟 https://bitown.aicanhelp.app ，右側應看到專案名稱、縮短的 commit 與部署時間。
+`git_commit` 應等於剛才的 `GIT_COMMIT`，`deployed_at` 不應是 `unknown`。瀏覽器開啟 https://bitown.aicanhelp.app ，右側應看到前端 commit、後端 commit 與部署時間。兩邊 commit 不同時，這三行會變成琥珀色。
+
+## 這次部署比對哪一個 commit
+
+Deploy staging 的 concurrency group 是 `bi-town-staging`，`cancel-in-progress` 為 false：新的部署排隊，不取消正在跑的那次。取消 GitHub job 停不掉主機上已經開始的 `git reset` 與 `docker compose`。
+
+比對用的 SHA 是觸發這次部署的 CI commit（`workflow_run.head_sha`，也就是那次 CI 的 `GITHUB_SHA`）。不是這支 deploy workflow 自己的 `github.sha`，也不是部署後主機上的 `HEAD`。`workflow_run` 裡的 `github.sha` 是 default branch 的尖端，可能已經往前走。
+
+## 靜態檔快取
+
+`/`、`/index.html`、`/index.js`、`/index.wasm`、`/index.pck`、`/build_info.json` 回 `Cache-Control: no-cache`，並帶 Starlette 產生的 `ETag`。條件請求對得上時回 304。
+
+這表示快取可以留著複本，但每次使用前都要向來源確認。Cloudflare 文件（[Cache-Control](https://developers.cloudflare.com/cache/concepts/cache-control/)）寫明：Origin Cache Control 開啟時（Free、Pro、Business 的預設），`no-cache` 會被存下來但每次都重新驗證，不會直接端出過期內容，`cf-cache-status` 是 `REVALIDATED` 或 `EXPIRED`。Origin Cache Control 關閉時（Enterprise 預設），`no-cache` 是不快取（`BYPASS`）。兩種都不會在沒問來源的情況下繼續給舊檔。若有 Cache Rule 把 Edge TTL 設成忽略 origin 的 `Cache-Control`，這個保證會被蓋掉，這些路徑不能套那條規則。
+
+上線後用下面指令確認。第二次不應是帶著遞增 `Age` 的 `HIT`：
+
+```bash
+curl -sI https://bitown.aicanhelp.app/index.html
+curl -sI https://bitown.aicanhelp.app/index.wasm
+curl -sI https://bitown.aicanhelp.app/index.js
+curl -sI https://bitown.aicanhelp.app/index.pck
+curl -sI https://bitown.aicanhelp.app/build_info.json
+```
+
+回應要有 `cache-control: no-cache` 與 `etag`。把那個 `etag` 放進下一次請求應得到 304：
+
+```bash
+curl -sI -H 'If-None-Match: "<etag>"' https://bitown.aicanhelp.app/index.wasm
+```
+
+本機測試會打同一組標頭與 304，但沒有打到 Cloudflare 邊緣。邊緣行為要等這次部署後用上面的 `curl` 看 `cf-cache-status`。
 
 ## 正常發布
 
@@ -60,7 +90,7 @@ git revert -m 1 <有問題的 merge commit>
 # 把這個 revert commit 開 PR 並合併回 main
 ```
 
-僅限緊急：CD 無法跑、必須先讓站恢復時，才在主機上執行下面的 `git reset --hard`。下一次成功的 Deploy staging 會再次 `git reset --hard origin/main`，所以主機上的 reset 留不住。要讓舊版留下來，仍要走上面的 revert PR。
+僅限緊急：CD 無法跑、必須先讓站恢復時，才在主機上執行下面的 `git reset --hard`。下一次成功的 Deploy staging 會把主機 reset 到觸發那次 CI 的 commit，所以主機上的 reset 留不住。要讓舊版留下來，仍要走上面的 revert PR。
 
 ```bash
 cd /srv/bi_town
