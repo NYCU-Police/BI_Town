@@ -45,7 +45,9 @@ curl -fsS http://127.0.0.1:8100/api/health
 1. 功能分支開 PR 到 `main`。
 2. CI 跑後端測試、ruff、backend image build、compose 設定檢查、Godot web export。匯出檔不進 git。CI 用 Godot headless 輸出 web，Deploy staging 把該 artifact rsync 到主機的 `game/build/web/`，compose 再掛進 backend。HUD 的改動跟著這次 export 上線。
 3. 合併後 CI 在 `main` 再跑一次。成功才會觸發 Deploy staging。
-4. workflow 失敗時，主機停留在上一次成功建出來的容器。
+4. workflow 失敗時，主機停留在上一次成功建出來的容器。若部署步驟已跑完、只有後面的檢查失敗，線上可能已經是新版本，但 workflow 仍算失敗。
+
+公開網址檢查（`/api/health`，以及之後的 `/build_info.json`）是在部署主機上執行 `curl https://bitown.aicanhelp.app/...`。請求仍經過 Cloudflare 邊緣與 Tunnel，SHA 必須等於觸發這次部署的 CI commit（`workflow_run.head_sha`）。不從 GitHub runner 直接打公開網址：runner 的資料中心 IP 會被 Cloudflare 當成機器人回 403。這不是放寬檢查，也不要為了 runner 去改 Cloudflare 規則。本機 `127.0.0.1` 檢查另外保留。
 
 ## 回滾
 

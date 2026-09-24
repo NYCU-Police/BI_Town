@@ -144,7 +144,7 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
    - Tailscale（`tag:ci`）連上 staging host，SSH。
    - rsync Godot web artifact 到 `/srv/bi_town/game/build/web/`（`--delete`）。不碰 host 上的 `deploy/.env`。
    - host 上：`cd /srv/bi_town && git fetch origin main && git reset --hard origin/main`。`GIT_COMMIT`（完整 SHA）是映像建置參數；`DEPLOYED_AT`（UTC）在 `docker compose up` 時寫進容器環境。
-   - 健康檢查：本機 `http://127.0.0.1:8100/api/health` 與公開 `https://bitown.aicanhelp.app/api/health` 都要過。每 3 秒一次，最多 60 秒。`status` 須為 `ok`，`git_commit` 須等於主機 `HEAD`，`deployed_at` 不可為 `unknown`。本機回應還須帶 `Cache-Control: no-store`。公開網址的 SHA 對不上也會讓 job 失敗。
+   - 健康檢查：本機 `http://127.0.0.1:8100/api/health` 與公開 `https://bitown.aicanhelp.app/api/health` 都要過。公開網址是經 Tailscale SSH 在部署主機上 curl，仍走 Cloudflare 與 Tunnel，不從 GitHub runner 打。每 3 秒一次，最多 60 秒。`status` 須為 `ok`，`git_commit` 須等於觸發這次部署的 CI commit（`workflow_run.head_sha`），`deployed_at` 不可為 `unknown`。本機回應還須帶 `Cache-Control: no-store`。公開網址的 SHA 對不上也會讓 job 失敗。
    - concurrency group `bi-town-staging`，新的部署會取消進行中的部署。
 
 ## 5. 關鍵約定
