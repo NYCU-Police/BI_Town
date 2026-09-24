@@ -10,7 +10,8 @@ staging 的對外網址是 https://bitown.aicanhelp.app。HTTPS 由 Cloudflare T
 | --- | --- |
 | `TS_OAUTH_CLIENT_ID`、`TS_OAUTH_SECRET`、`STAGING_HOST`、`STAGING_USER`、`STAGING_SSH_KEY` | GitHub environment `staging` |
 | `TUNNEL_TOKEN`、`POSTGRES_PASSWORD` | 主機上的 `deploy/.env`（由 `deploy/.env.example` 複製） |
-| `GIT_COMMIT`、`DEPLOYED_AT` | 部署當下由 workflow 注入的建置參數，不是密鑰 |
+| `GIT_COMMIT` | 部署當下的映像建置參數，不是密鑰 |
+| `DEPLOYED_AT` | 容器建立當下寫入的環境變數，不是密鑰 |
 
 倉庫只提交 `*.env.example`。不要把 `deploy/.env` 或私鑰提交進來。
 
@@ -42,15 +43,22 @@ curl -fsS http://127.0.0.1:8100/api/health
 ## 正常發布
 
 1. 功能分支開 PR 到 `main`。
-2. CI 跑後端測試、ruff、backend image build、compose 設定檢查、Godot web export。
+2. CI 跑後端測試、ruff、backend image build、compose 設定檢查、Godot web export。匯出檔不進 git。CI 用 Godot headless 輸出 web，Deploy staging 把該 artifact rsync 到主機的 `game/build/web/`，compose 再掛進 backend。HUD 的改動跟著這次 export 上線。
 3. 合併後 CI 在 `main` 再跑一次。成功才會觸發 Deploy staging。
 4. workflow 失敗時，主機停留在上一次成功建出來的容器。
 
 ## 回滾
 
-優先在 GitHub 上 revert 造成問題的合併，讓 CI 與 Deploy staging 再跑一輪。這樣主機上的 `main` 與線上映像一致。
+標準做法：在 `main` 上對造成問題的合併執行 `git revert`，再開 PR 進 `main`。PR 合併後，CI 與 Deploy staging 會把線上環境建回 revert 之後的樹。主機上的 `main` 與 `origin/main` 保持一致。
 
-緊急情況、CD 本身起不來時，可在主機上暫時建回舊 commit。下一次成功的 Deploy staging 會再次 `git reset --hard origin/main`，所以這只是暫時手段；要留住舊版，仍須讓 `main` 回到那個 commit。
+```bash
+git checkout main
+git pull
+git revert -m 1 <有問題的 merge commit>
+# 把這個 revert commit 開 PR 並合併回 main
+```
+
+僅限緊急：CD 無法跑、必須先讓站恢復時，才在主機上執行下面的 `git reset --hard`。下一次成功的 Deploy staging 會再次 `git reset --hard origin/main`，所以主機上的 reset 留不住。要讓舊版留下來，仍要走上面的 revert PR。
 
 ```bash
 cd /srv/bi_town
