@@ -8,6 +8,7 @@ extends CanvasLayer
 @onready var _event_log: RichTextLabel = %EventLog
 
 var _agent_names: Dictionary = {}
+var _web_health_callback: Variant
 
 
 func _ready() -> void:
@@ -69,12 +70,54 @@ func set_connection(online: bool) -> void:
 
 
 func _request_health() -> void:
+	if OS.has_feature("web"):
+		_request_health_web()
+		return
 	var http := HTTPRequest.new()
 	add_child(http)
 	http.request_completed.connect(_on_health_completed)
-	var err := http.request(_health_url())
+	var err := http.request("http://127.0.0.1:8000/api/health")
 	if err != OK:
-		push_error("GET /api/health failed to start: %s" % error_string(err))
+		_show_unknown_identity()
+
+
+func _request_health_web() -> void:
+	# Relative /api/health follows the page origin (compose and production).
+	# Keep the callback alive; Godot drops it if nothing references it.
+	_web_health_callback = JavaScriptBridge.create_callback(_on_web_health)
+	var window: Variant = JavaScriptBridge.get_interface("window")
+	if window == null:
+		_show_unknown_identity()
+		return
+	window.biTownOnHealth = _web_health_callback
+	JavaScriptBridge.eval(
+		"""
+		fetch('/api/health').then(function (response) {
+			if (!response.ok) {
+				window.biTownOnHealth('');
+				return;
+			}
+			response.text().then(function (text) {
+				window.biTownOnHealth(text);
+			}).catch(function () {
+				window.biTownOnHealth('');
+			});
+		}).catch(function () {
+			window.biTownOnHealth('');
+		});
+		""",
+		true,
+	)
+
+
+func _on_web_health(args: Array) -> void:
+	var text := ""
+	if args.size() > 0 and args[0] != null:
+		text = str(args[0])
+	if text.is_empty():
+		_show_unknown_identity()
+		return
+	_apply_health_text(text)
 
 
 func _on_health_completed(
@@ -84,11 +127,19 @@ func _on_health_completed(
 	body: PackedByteArray,
 ) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
-		push_error("GET /api/health failed (result=%s code=%s)" % [result, response_code])
+		_show_unknown_identity()
 		return
-	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+	_apply_health_text(body.get_string_from_utf8())
+
+
+func _show_unknown_identity() -> void:
+	_build_label.text = "commit unknown\ndeployed unknown"
+
+
+func _apply_health_text(text: String) -> void:
+	var parsed: Variant = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
-		push_error("health JSON parse failed")
+		_show_unknown_identity()
 		return
 	var data: Dictionary = parsed
 	var service := str(data.get("service", "BI_Town"))
@@ -98,43 +149,15 @@ func _on_health_completed(
 	else:
 		_title_label.text = "%s v%s" % [service, version]
 	var commit := str(data.get("git_commit", "unknown"))
+	if commit.is_empty():
+		commit = "unknown"
 	var shown := commit
 	if commit != "unknown" and commit.length() > 7:
 		shown = commit.substr(0, 7)
 	var deployed := str(data.get("deployed_at", "unknown"))
+	if deployed.is_empty():
+		deployed = "unknown"
 	_build_label.text = "commit %s\ndeployed %s" % [shown, deployed]
-
-
-func _health_url() -> String:
-	if not OS.has_feature("web"):
-		return "http://127.0.0.1:8000/api/health"
-
-	var override_url := _websocket_override_from_query()
-	if not override_url.is_empty():
-		return _http_health_from_websocket(override_url)
-
-	var location: Variant = JavaScriptBridge.get_interface("location")
-	if location == null:
-		push_error("JavaScriptBridge location unavailable; using desktop health URL")
-		return "http://127.0.0.1:8000/api/health"
-	return "%s//%s/api/health" % [str(location.protocol), str(location.host)]
-
-
-func _websocket_override_from_query() -> String:
-	var raw: Variant = JavaScriptBridge.eval(
-		"decodeURIComponent(new URLSearchParams(window.location.search).get('ws') || '')"
-	)
-	if raw == null:
-		return ""
-	return str(raw).strip_edges()
-
-
-func _http_health_from_websocket(websocket_url: String) -> String:
-	var http_url := websocket_url.replace("wss://", "https://").replace("ws://", "http://")
-	var path_at := http_url.find("/ws")
-	if path_at >= 0:
-		http_url = http_url.substr(0, path_at)
-	return http_url.trim_suffix("/") + "/api/health"
 
 
 func _set_clock(data: Dictionary) -> void:
