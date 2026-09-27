@@ -78,6 +78,17 @@ def test_activity_blocks_decisions_and_is_remembered() -> None:
     calls: list[str] = []
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        user = next(item["content"] for item in messages if item["role"] == "user")
+        if user.startswith("請安排今天的計畫"):
+            return (
+                '{"items":['
+                '{"time":"09:00","place":"cafe","activity":"order_coffee","reason":"醒醒腦"},'
+                '{"time":"10:00","place":"office","activity":"write_report","reason":"寫報告"},'
+                '{"time":"12:00","place":"park","activity":"stroll","reason":"透氣"},'
+                '{"time":"18:00","place":"library","activity":"study","reason":"安靜"}'
+                "]}"
+            )
+
         actor = _actor_id(messages)
         calls.append(actor)
         if actor == "mina":
@@ -113,6 +124,17 @@ def test_reply_during_activity_then_continue() -> None:
     replied: list[str] = []
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        user = next(item["content"] for item in messages if item["role"] == "user")
+        if user.startswith("請安排今天的計畫"):
+            return (
+                '{"items":['
+                '{"time":"09:00","place":"cafe","activity":"order_coffee","reason":"醒醒腦"},'
+                '{"time":"10:00","place":"office","activity":"write_report","reason":"寫報告"},'
+                '{"time":"12:00","place":"park","activity":"stroll","reason":"透氣"},'
+                '{"time":"18:00","place":"library","activity":"study","reason":"安靜"}'
+                "]}"
+            )
+
         actor = _actor_id(messages)
         user = next(item["content"] for item in messages if item["role"] == "user")
         if actor == "mina":

@@ -7,8 +7,10 @@ Calls go through one async worker so World.tick() never waits on the model.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -22,6 +24,10 @@ from app.config import (
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_URL,
+    EAT_FULLNESS_RESTORE,
+    EATING_ACTIVITIES,
+    ENERGY_DECAY_PER_MINUTE,
+    FULLNESS_DECAY_PER_MINUTE,
     GAME_MINUTES_PER_TICK,
     INITIAL_DAY,
     INITIAL_TIME,
@@ -38,6 +44,27 @@ from app.config import (
     LLM_TEMPERATURE,
     LLM_THOUGHT_SIMILARITY,
     LLM_UNANSWERED_MINUTES,
+    NEED_EXHAUSTED,
+    NEED_HUNGRY,
+    NEED_LONELY,
+    NEED_LONELY_HINT,
+    NEED_MAX,
+    NEED_PECKISH,
+    NEED_START_ENERGY,
+    NEED_START_FULLNESS,
+    NEED_START_SOCIAL,
+    NEED_TIRED,
+    PLAN_MAX_ITEMS,
+    PLAN_MIN_ITEMS,
+    REST_ENERGY_PER_MINUTE,
+    RESTING_ACTIVITIES,
+    REVIEW_HISTORY_DAYS,
+    SLEEP_ENERGY_PER_MINUTE,
+    SLEEP_HOUR,
+    SLEEPING_ACTIVITIES,
+    SOCIAL_DECAY_PER_MINUTE,
+    TALK_SOCIAL_RESTORE,
+    WAKE_HOUR,
     current_llm_think,
 )
 from app.models.schemas import Agent, Position, WorldEvent
@@ -66,6 +93,7 @@ thought 只寫一句內心話。
 你已經在某地點時，不要邀請別人去同一個地點。
 有人對你說話而你還沒回應時，優先回應對方，除非你的個性讓你刻意不理。
 這個世界沒有手機或訊息，只能當面說話。
+你的想法只反映你自己的立場與處境，不要把別人說過的話當成自己的想法。
 """
 
 REPEAT_SAY = "你已經說過類似的話，請說新的內容"
@@ -92,6 +120,21 @@ class Decision(BaseModel):
     target: str = Field(default="", description="POI id、居民 id，或空字串")
     say: str = Field(default="", description="說出口的繁體中文；不說則空字串")
     thought: str = Field(default="", description="一句繁體中文內心話")
+
+
+class PlanItem(BaseModel):
+    time: str
+    place: str
+    activity: str
+    reason: str
+
+
+class DailyPlan(BaseModel):
+    items: list[PlanItem]
+
+
+class DayReview(BaseModel):
+    sentences: list[str]
 
 
 @dataclass
@@ -121,6 +164,14 @@ class Resident:
     activity_id: str = ""
     activity_name: str = ""
     activity_remaining: int = 0
+    energy: float = NEED_START_ENERGY
+    fullness: float = NEED_START_FULLNESS
+    social: float = NEED_START_SOCIAL
+    plan: list[PlanItem] = field(default_factory=list)
+    reviews: list[tuple[int, str]] = field(default_factory=list)
+    pending_opening_decision: bool = False
+    reviewed_today: bool = False
+    review_pending: bool = False
 
     def remember(self, time_str: str, item: str) -> None:
         self.memories.append(f"[{time_str}] {item}")
@@ -130,8 +181,16 @@ class Resident:
             state: Literal["idle", "walking", "doing"] = "walking"
         elif self.state == "doing":
             state = "doing"
+        elif self.state == "sleeping":
+            state = "doing"
         else:
             state = "idle"
+        if self.state == "sleeping":
+            activity = "睡覺"
+        elif state == "doing":
+            activity = self.activity_name
+        else:
+            activity = ""
         return Agent(
             id=self.id,
             name=self.name,
@@ -139,7 +198,7 @@ class Resident:
             location=self.location,
             target_location=self.target_location,
             state=state,
-            activity=self.activity_name if state == "doing" else "",
+            activity=activity,
         )
 
 
@@ -364,6 +423,108 @@ def decision_schema(actor_id: str, residents: list[Resident]) -> dict[str, Any]:
     return schema
 
 
+def plan_schema(actor_id: str) -> dict[str, Any]:
+    branches = []
+    for poi_id, _poi in POIS.items():
+        activities = [activity.id for activity in activities_for(poi_id, actor_id)]
+        if not activities:
+            continue
+        branches.append(
+            {
+                "type": "object",
+                "properties": {
+                    "time": {"type": "string", "pattern": r"^\d{2}:\d{2}$"},
+                    "place": {"const": poi_id},
+                    "activity": {"enum": activities},
+                    "reason": {"type": "string", "minLength": 1},
+                },
+                "required": ["time", "place", "activity", "reason"],
+            }
+        )
+    return {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "minItems": PLAN_MIN_ITEMS,
+                "maxItems": PLAN_MAX_ITEMS,
+                "items": {"oneOf": branches},
+            }
+        },
+        "required": ["items"],
+    }
+
+
+def review_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "sentences": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": {"type": "string", "minLength": 1},
+            }
+        },
+        "required": ["sentences"],
+    }
+
+
+def _load_json(raw: str) -> dict[str, Any] | None:
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = [
+            line for line in text.splitlines() if not line.strip().startswith("```")
+        ]
+        text = "\n".join(lines).strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def parse_plan(raw: str, actor_id: str) -> tuple[list[PlanItem], str | None]:
+    data = _load_json(raw)
+    if data is None or "action" in data:
+        return [], "這不是今天的計畫"
+    try:
+        plan = DailyPlan.model_validate(data)
+    except Exception:
+        return [], "計畫格式不對"
+    if not PLAN_MIN_ITEMS <= len(plan.items) <= PLAN_MAX_ITEMS:
+        return [], f"計畫要有 {PLAN_MIN_ITEMS} 到 {PLAN_MAX_ITEMS} 項"
+    for item in plan.items:
+        if _clock_minutes(item.time) is None:
+            return [], f"時間格式不對 {item.time}"
+        allowed = {activity.id for activity in activities_for(item.place, actor_id)}
+        if item.place not in POIS or item.activity not in allowed:
+            return [], f"{item.place} 不能做 {item.activity}"
+        if not item.reason.strip():
+            return [], "每一項都要有理由"
+    return plan.items, None
+
+
+def parse_review(raw: str) -> tuple[str, str | None]:
+    data = _load_json(raw)
+    if data is None or "action" in data:
+        return "", "這不是今日回顧"
+    sentences = data.get("sentences")
+    if not isinstance(sentences, list) or not 1 <= len(sentences) <= 3:
+        return "", "回顧要有 1 到 3 句"
+    parts: list[str] = []
+    for sentence in sentences:
+        if not isinstance(sentence, str) or not sentence.strip():
+            return "", "回顧要有 1 到 3 句"
+        text = sentence.strip()
+        if text[-1] not in "。！？":
+            text += "。"
+        parts.append(text)
+    return "".join(parts), None
+
+
 def coerce_target(
     decision: Decision,
     actor: Resident,
@@ -456,7 +617,7 @@ def people_here(actor: Resident, residents: list[Resident]) -> list[Resident]:
         other
         for other in residents
         if other.id != actor.id
-        and other.state != "walking"
+        and other.state in {"idle", "doing"}
         and other.location == actor.location
     ]
     others.sort(key=lambda other: other.id)
@@ -515,6 +676,96 @@ def situation_text(
     return "\n".join(f"- {line}" for line in lines)
 
 
+_CLOCK = re.compile(r"^(\d{2}):(\d{2})$")
+
+
+def _clock_minutes(time_str: str) -> int | None:
+    match = _CLOCK.match(time_str.strip())
+    if match is None:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return hour * 60 + minute
+
+
+def _is_night(time_str: str) -> bool:
+    minutes = _clock_minutes(time_str)
+    if minutes is None:
+        return False
+    return minutes >= SLEEP_HOUR * 60 or minutes < WAKE_HOUR * 60
+
+
+def _clamp_need(value: float) -> float:
+    return min(NEED_MAX, max(0.0, value))
+
+
+def _share_company(actor: Resident, other: Resident) -> None:
+    actor.social = _clamp_need(actor.social + TALK_SOCIAL_RESTORE)
+    other.social = _clamp_need(other.social + TALK_SOCIAL_RESTORE)
+
+
+def _activity_label(activity_id: str) -> str:
+    for poi in POIS.values():
+        for activity in poi.activities:
+            if activity.id == activity_id:
+                return activity.name
+    return activity_id
+
+
+def _body_line(actor: Resident) -> str:
+    phrases: list[str] = []
+    if actor.energy < NEED_EXHAUSTED:
+        phrases.append("你很累")
+    elif actor.energy < NEED_TIRED:
+        phrases.append("你有點累")
+    if actor.fullness < NEED_HUNGRY:
+        phrases.append("你很餓")
+    elif actor.fullness < NEED_PECKISH:
+        phrases.append("你有點餓了")
+    if actor.social < NEED_LONELY:
+        phrases.append("你很想找人說話")
+    elif actor.social < NEED_LONELY_HINT:
+        phrases.append("你有點想找人聊聊")
+    if not phrases:
+        return ""
+    return "身體：" + "，".join(phrases) + "。"
+
+
+def _plan_block(actor: Resident, time_str: str) -> str:
+    if not actor.plan:
+        return "今天的計畫：還沒排。"
+    now = _clock_minutes(time_str)
+    current = None
+    if now is not None:
+        for index, item in enumerate(actor.plan):
+            item_minutes = _clock_minutes(item.time)
+            if item_minutes is not None and item_minutes <= now:
+                current = index
+    rows: list[str] = []
+    for index, item in enumerate(actor.plan):
+        place = POIS[item.place].name if item.place in POIS else item.place
+        mark = " ← 現在這項" if index == current else ""
+        label = _activity_label(item.activity)
+        rows.append(f"- {item.time} {place} {label}：{item.reason}{mark}")
+    return "今天的計畫：\n" + "\n".join(rows)
+
+
+def _memory_text(actor: Resident) -> str:
+    recent = list(actor.memories)[-LLM_MEMORY_PROMPT_LIMIT:]
+    if not recent:
+        return "- （還沒有記憶）"
+    return "\n".join(f"- {item}" for item in recent)
+
+
+def _review_block(actor: Resident) -> str:
+    recent = actor.reviews[-REVIEW_HISTORY_DAYS:]
+    if not recent:
+        return "- （還沒有）"
+    return "\n".join(f"- 第 {day} 天：{text}" for day, text in recent)
+
+
 def _activity_prompt(actor: Resident) -> str:
     available = activities_for(actor.location, actor.id)
     if not available:
@@ -552,8 +803,10 @@ def build_messages(
     places = "、".join(place_name(poi_id) for poi_id in POIS)
     here_label = place_name(actor.location)
     situation = situation_text(actor, residents, now_minutes)
+    body = _body_line(actor)
+    body_line = f"{body}\n" if body else ""
     user = (
-        f"目前狀況：\n{situation}\n\n"
+        f"目前狀況：\n{situation}\n{body_line}{_plan_block(actor, time_str)}\n\n"
         f"你是 {actor.name}（id: {actor.id}）。\n"
         f"{actor.persona}\n\n"
         f"現在是 {time_str}，你在 {here_label}。\n"
@@ -564,6 +817,7 @@ def build_messages(
         f"上一次的想法：{actor.last_thought or '（還沒有）'}\n"
         f"你已經在 {here_label} 待了 {actor.minutes_here} 分鐘。\n"
         f"你最近說過的話：\n{spoken_text}\n"
+        f"最近的回顧：\n{_review_block(actor)}\n"
         f"最近的記憶：\n{memory_text}"
     )
     return [
@@ -599,6 +853,8 @@ def validate_decision(
     other = by_id[decision.target]
     if other.location != actor.location or other.state == "walking":
         return f"{other.name} 不在同地點或正在移動"
+    if other.state == "sleeping":
+        return f"{other.name} 正在睡覺"
     return None
 
 
@@ -606,14 +862,17 @@ def validate_decision(
 class DecisionJob:
     agent_id: str
     messages: list[dict[str, str]]
-    is_reply: bool
-    partner: str | None
+    is_reply: bool = False
+    partner: str | None = None
+    kind: str = "decision"
+    time_str: str = ""
 
 
 @dataclass
 class ReadyDecision:
     job: DecisionJob
-    decision: Decision
+    decision: Decision | None = None
+    review: str = ""
 
 
 class LlmSession:
@@ -625,11 +884,20 @@ class LlmSession:
         self.queue: asyncio.Queue[DecisionJob] = asyncio.Queue()
         self.inbox: list[ReadyDecision] = []
         self.waiting: set[str] = set()
+        self.planning: set[str] = set()
         self.decider = decider
         self.now_minutes = 0
+        self.day = INITIAL_DAY
+        self.plans_due = False
 
-    def advance(self, time_str: str) -> tuple[list[WorldEvent], set[str]]:
+    def advance(
+        self,
+        time_str: str,
+        day: int | None = None,
+    ) -> tuple[list[WorldEvent], set[str]]:
         """Apply finished thoughts, walk, and enqueue. Does not call the model."""
+        if day is not None:
+            self.day = day
         events: list[WorldEvent] = []
         changed: set[str] = set()
         reply_now = dict(self.dialogue.reply_next)
@@ -647,6 +915,8 @@ class LlmSession:
 
         arrivals = self._step(time_str, events, changed)
         self._tick_activities()
+        self._tick_needs()
+        self._apply_schedule_clock(time_str, events, changed)
         self._enqueue(time_str, reply_now, arrivals)
         for resident in self.residents:
             if resident.state != "idle":
@@ -664,8 +934,11 @@ class LlmSession:
         time_str: str,
     ) -> tuple[list[WorldEvent], set[str]]:
         actor = self.by_id.get(item.job.agent_id)
-        if actor is None:
+        if actor is None or item.decision is None and item.job.kind != "review":
             return [], set()
+        if item.job.kind == "review":
+            return self._apply_review(actor, item.review, time_str)
+        assert item.decision is not None
         decision = coerce_target(item.decision, actor, self.residents)
         problem = validate_decision(decision, actor, self.by_id)
         if problem is not None:
@@ -721,7 +994,7 @@ class LlmSession:
                 )
             )
             for other in people_here(actor, self.residents):
-                other.remember(time_str, f"聽到 {actor.name} 說：{say}")
+                other.remember(time_str, f"（{actor.name} 說）{say}")
 
         if actor.state == "doing" and job.is_reply:
             if decision.action == "talk_to" and decision.target in self.by_id:
@@ -737,8 +1010,9 @@ class LlmSession:
                             minute=self.now_minutes,
                         )
                     )
-                    actor.remember(time_str, f"我對 {other.name} 說：{say}")
+                    actor.remember(time_str, f"（我說）對 {other.name}：{say}")
                 self.dialogue.finish_talk(actor.id, other.id)
+                _share_company(actor, other)
             else:
                 self.dialogue.abandon(actor.id, job.partner)
             return events
@@ -756,6 +1030,8 @@ class LlmSession:
             actor.idle_minutes = 0
             actor.target_location = actor.location
             actor.remember(time_str, f"在{place.name}{chosen.name}")
+            if chosen.id in EATING_ACTIVITIES:
+                actor.fullness = _clamp_need(actor.fullness + EAT_FULLNESS_RESTORE)
             events.append(
                 WorldEvent(
                     timestamp=time_str,
@@ -815,12 +1091,13 @@ class LlmSession:
                     )
                 )
             if say:
-                actor.remember(time_str, f"我對 {other.name} 說：{say}")
+                actor.remember(time_str, f"（我說）對 {other.name}：{say}")
             else:
                 actor.remember(time_str, f"想跟 {other.name} 說話，但沒說出內容")
             actor.state = "idle"
             actor.idle_minutes = 0
             self.dialogue.finish_talk(actor.id, other.id)
+            _share_company(actor, other)
             return events
         actor.state = "idle"
         actor.target_location = actor.location
@@ -880,10 +1157,195 @@ class LlmSession:
             seen = "、".join(other.name for other in company)
         else:
             seen = "沒有別人"
-        actor.stay_until_minute = self.now_minutes + LLM_MIN_STAY_MINUTES
         actor.remember(time_str, f"抵達 {actor.location}，看到 {seen}")
         for other in company:
             other.remember(time_str, f"看到 {actor.name} 抵達 {actor.location}")
+        if _is_night(time_str):
+            actor.stay_until_minute = None
+            self._queue_review(actor, time_str)
+            return
+        actor.stay_until_minute = self.now_minutes + LLM_MIN_STAY_MINUTES
+
+    def _tick_needs(self) -> None:
+        for resident in self.residents:
+            asleep = resident.state == "sleeping" or (
+                resident.state == "doing"
+                and resident.activity_id in SLEEPING_ACTIVITIES
+            )
+            resting = (
+                resident.state == "doing"
+                and resident.activity_id in RESTING_ACTIVITIES
+            )
+            if asleep:
+                resident.energy = _clamp_need(
+                    resident.energy + SLEEP_ENERGY_PER_MINUTE
+                )
+            elif resting:
+                resident.energy = _clamp_need(
+                    resident.energy + REST_ENERGY_PER_MINUTE
+                )
+            else:
+                resident.energy = _clamp_need(
+                    resident.energy - ENERGY_DECAY_PER_MINUTE
+                )
+            resident.fullness = _clamp_need(
+                resident.fullness - FULLNESS_DECAY_PER_MINUTE
+            )
+            resident.social = _clamp_need(
+                resident.social - SOCIAL_DECAY_PER_MINUTE
+            )
+
+    def _apply_review(
+        self,
+        actor: Resident,
+        text: str,
+        time_str: str,
+    ) -> tuple[list[WorldEvent], set[str]]:
+        actor.review_pending = False
+        actor.reviewed_today = True
+        if text:
+            actor.reviews.append((self.day, text))
+            actor.remember(time_str, f"今日回顧：{text}")
+        self._begin_sleep(actor)
+        return [], {actor.id}
+
+    def _begin_sleep(self, actor: Resident) -> None:
+        actor.state = "sleeping"
+        actor.activity_id = ""
+        actor.activity_name = ""
+        actor.activity_remaining = 0
+        actor.target_location = actor.location
+        actor.idle_minutes = 0
+
+    def _queue_review(self, actor: Resident, time_str: str) -> None:
+        if actor.reviewed_today or actor.review_pending or actor.id in self.waiting:
+            return
+        if actor.state == "sleeping":
+            return
+        actor.review_pending = True
+        self.waiting.add(actor.id)
+        self.queue.put_nowait(
+            DecisionJob(
+                agent_id=actor.id,
+                messages=self._review_messages(actor, time_str),
+                kind="review",
+                time_str=time_str,
+            )
+        )
+
+    def _review_messages(
+        self,
+        actor: Resident,
+        time_str: str,
+    ) -> list[dict[str, str]]:
+        return [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"你是 {actor.name}（id: {actor.id}）。\n"
+                    f"{actor.persona}\n\n"
+                    f"現在是第 {self.day} 天 {time_str}，你要睡了。\n"
+                    "用 1 到 3 句繁體中文寫今日回顧，只放在 sentences。"
+                    "回顧是你自己的看法，不要把別人的話寫成你的想法。\n"
+                    f"最近的記憶：\n{_memory_text(actor)}"
+                ),
+            },
+        ]
+
+    def _queue_plan(self, actor: Resident, time_str: str) -> None:
+        if actor.id in self.planning or actor.state == "sleeping":
+            return
+        self.planning.add(actor.id)
+        self.queue.put_nowait(
+            DecisionJob(
+                agent_id=actor.id,
+                messages=self._plan_messages(actor, time_str),
+                kind="plan",
+                time_str=time_str,
+            )
+        )
+
+    def _plan_messages(
+        self,
+        actor: Resident,
+        time_str: str,
+    ) -> list[dict[str, str]]:
+        return [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"請安排今天的計畫。你是 {actor.name}（id: {actor.id}）。\n"
+                    f"{actor.persona}\n\n"
+                    f"現在是第 {self.day} 天 {time_str}。\n"
+                    f"寫 {PLAN_MIN_ITEMS} 到 {PLAN_MAX_ITEMS} 項，"
+                    "每項有時間（HH:MM）、地點 id、活動 id、一句理由。\n"
+                    f"最近的回顧：\n{_review_block(actor)}"
+                ),
+            },
+        ]
+
+    def _send_home(
+        self,
+        actor: Resident,
+        time_str: str,
+        events: list[WorldEvent],
+        changed: set[str],
+    ) -> None:
+        home = home_for(actor.id)
+        if actor.state == "walking" and actor.target_location == home.id:
+            return
+        if actor.location == home.id and actor.state != "walking":
+            return
+        if actor.state in {"idle", "doing"}:
+            events.append(
+                WorldEvent(
+                    timestamp=time_str,
+                    agent_id=actor.id,
+                    event="left",
+                    location=actor.location,
+                )
+            )
+        actor.activity_id = ""
+        actor.activity_name = ""
+        actor.activity_remaining = 0
+        actor.state = "walking"
+        actor.target_location = home.id
+        actor.idle_minutes = 0
+        changed.add(actor.id)
+
+    def _apply_schedule_clock(
+        self,
+        time_str: str,
+        events: list[WorldEvent],
+        changed: set[str],
+    ) -> None:
+        if _clock_minutes(time_str) == WAKE_HOUR * 60:
+            for resident in self.residents:
+                if resident.state != "sleeping":
+                    continue
+                resident.state = "idle"
+                resident.activity_id = ""
+                resident.activity_name = ""
+                resident.reviewed_today = False
+                resident.review_pending = False
+                resident.pending_opening_decision = True
+                resident.idle_minutes = 0
+                changed.add(resident.id)
+                self._queue_plan(resident, time_str)
+            return
+        if not _is_night(time_str):
+            return
+        for resident in self.residents:
+            if resident.state == "sleeping":
+                continue
+            home = home_for(resident.id)
+            away = resident.location != home.id or resident.state == "walking"
+            if away:
+                self._send_home(resident, time_str, events, changed)
+                continue
+            self._queue_review(resident, time_str)
 
     def _tick_activities(self) -> None:
         for resident in self.residents:
@@ -904,10 +1366,20 @@ class LlmSession:
         reply_now: dict[str, str],
         arrivals: set[str],
     ) -> None:
-        forced: set[str] = set()
         if self.opening:
-            forced.update(resident.id for resident in self.residents)
+            forced_ids = {resident.id for resident in self.residents}
             self.opening = False
+            self.plans_due = True
+        else:
+            forced_ids = set()
+            if self.plans_due and not _is_night(time_str):
+                for resident in self.residents:
+                    if resident.state != "sleeping":
+                        self._queue_plan(resident, time_str)
+                self.plans_due = False
+        if _is_night(time_str):
+            return
+        forced: set[str] = forced_ids
         forced.update(arrivals)
         for resident in self.residents:
             if (
@@ -923,6 +1395,8 @@ class LlmSession:
                 self.dialogue.drop_pair(resident_id, speaker_id)
         for resident in sorted(self.residents, key=lambda item: item.id):
             if resident.id not in forced:
+                continue
+            if resident.state == "sleeping":
                 continue
             if resident.state == "doing" and resident.id not in reply_now:
                 continue
@@ -941,7 +1415,7 @@ class LlmSession:
         is_reply: bool,
         partner: str | None,
     ) -> None:
-        if resident.state == "walking":
+        if resident.state in {"walking", "sleeping"}:
             return
         if resident.state == "doing" and not is_reply:
             return
@@ -1016,6 +1490,81 @@ def _enqueue_decision(
     session.inbox.append(ReadyDecision(job=job, decision=decision))
 
 
+async def _ask(
+    decider: Decider,
+    messages: list[dict[str, str]],
+    schema: dict[str, Any],
+    agent_id: str,
+) -> str | None:
+    try:
+        return await decider(messages, schema)
+    except Exception as exc:
+        logger.warning("LLM decision failed for %s", agent_id, exc_info=exc)
+        return None
+
+
+async def _complete_plan(
+    session: LlmSession,
+    job: DecisionJob,
+    decider: Decider,
+    actor: Resident,
+) -> None:
+    messages = list(job.messages)
+    schema = plan_schema(actor.id)
+    raw = await _ask(decider, messages, schema, actor.id)
+    items, problem = parse_plan(raw or "", actor.id)
+    payload = _load_json(raw or "")
+    if problem and not (payload and "action" in payload):
+        retried = await _ask(
+            decider,
+            _retry_messages(messages, raw or "", problem),
+            schema,
+            actor.id,
+        )
+        if retried is not None:
+            items, problem = parse_plan(retried, actor.id)
+    if problem:
+        logger.warning("LLM plan failed for %s: %s", actor.id, problem)
+        items = []
+    actor.plan = items
+    session.planning.discard(actor.id)
+    if actor.pending_opening_decision:
+        actor.pending_opening_decision = False
+        session._request(
+            actor,
+            job.time_str or "08:00",
+            is_reply=False,
+            partner=None,
+        )
+
+
+async def _complete_review(
+    session: LlmSession,
+    job: DecisionJob,
+    decider: Decider,
+    actor: Resident,
+) -> None:
+    messages = list(job.messages)
+    schema = review_schema()
+    raw = await _ask(decider, messages, schema, actor.id)
+    text, problem = parse_review(raw or "")
+    payload = _load_json(raw or "")
+    if problem and not (payload and "action" in payload):
+        retried = await _ask(
+            decider,
+            _retry_messages(messages, raw or "", problem),
+            schema,
+            actor.id,
+        )
+        if retried is not None:
+            text, problem = parse_review(retried)
+    if problem:
+        logger.warning("LLM review failed for %s: %s", actor.id, problem)
+        text = ""
+    session.waiting.discard(actor.id)
+    session.inbox.append(ReadyDecision(job=job, review=text))
+
+
 async def complete_job(session: LlmSession, job: DecisionJob) -> None:
     decider = session.decider
     if decider is None:
@@ -1023,7 +1572,15 @@ async def complete_job(session: LlmSession, job: DecisionJob) -> None:
     actor = session.by_id.get(job.agent_id)
     if actor is None:
         logger.warning("LLM decision skipped for unknown agent %s", job.agent_id)
-        _enqueue_decision(session, job, _stay())
+        session.waiting.discard(job.agent_id)
+        if job.kind == "decision":
+            _enqueue_decision(session, job, _stay())
+        return
+    if job.kind == "plan":
+        await _complete_plan(session, job, decider, actor)
+        return
+    if job.kind == "review":
+        await _complete_review(session, job, decider, actor)
         return
     schema = decision_schema(actor.id, session.residents)
     messages = list(job.messages)

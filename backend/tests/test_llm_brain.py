@@ -11,6 +11,23 @@ from app.simulation.poi import POIS
 from app.simulation.world import World
 
 STAY = '{"action":"stay","target":"","say":"早安","thought":"先看看周圍"}'
+_PLAN = (
+    '{"items":['
+    '{"time":"08:30","place":"cafe","activity":"order_coffee","reason":"想喝咖啡"},'
+    '{"time":"09:30","place":"office","activity":"write_report","reason":"處理工作"},'
+    '{"time":"12:30","place":"park","activity":"stroll","reason":"出去走走"},'
+    '{"time":"18:00","place":"library","activity":"study","reason":"安靜一下"}'
+    "]}"
+)
+
+
+def _maybe_plan(messages: list[dict[str, str]]) -> str | None:
+    user = next(item["content"] for item in messages if item["role"] == "user")
+    if user.startswith("請安排今天的計畫"):
+        return _PLAN
+    if user.startswith("現在是第") and "你要睡了" in user:
+        return '{"sentences":["今天先這樣。"]}'
+    return None
 
 
 def test_llm_decisions_emit_said_and_thought() -> None:
@@ -96,6 +113,10 @@ def test_decision_schema_limits_target_to_other_ids() -> None:
     schemas: dict[str, dict] = {}
 
     async def fake(messages: list[dict[str, str]], schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
+
         schemas[_actor_id(messages)] = schema
         return STAY
 
@@ -143,6 +164,9 @@ def test_resident_name_target_maps_to_id() -> None:
     calls: list[str] = []
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         actor = _actor_id(messages)
         calls.append(actor)
         if actor == "alex":
@@ -173,6 +197,9 @@ def test_invalid_target_retries_once_then_stays_quietly(caplog) -> None:
     alex_calls: list[list[dict[str, str]]] = []
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         if _actor_id(messages) != "alex":
             return STAY
         alex_calls.append(messages)
@@ -242,6 +269,9 @@ def test_prompt_names_places_and_recent_lines() -> None:
     prompts: list[str] = []
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         actor = _actor_id(messages)
         if actor != "alex":
             return SILENT
@@ -274,6 +304,9 @@ def test_system_prompt_tells_them_to_stop_repeating() -> None:
     captured: list[list[dict[str, str]]] = []
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         captured.append(messages)
         return SILENT
 
@@ -291,6 +324,8 @@ def test_system_prompt_tells_them_to_stop_repeating() -> None:
     reply_first = "有人對你說話而你還沒回應時，優先回應對方，除非你的個性讓你刻意不理"
     assert reply_first in system
     assert "這個世界沒有手機或訊息，只能當面說話" in system
+    own_thought = "你的想法只反映你自己的立場與處境，不要把別人說過的話當成自己的想法"
+    assert own_thought in system
 
 
 def test_similar_say_retries_then_stays_silent() -> None:
@@ -299,6 +334,9 @@ def test_similar_say_retries_then_stays_silent() -> None:
     echo = "早安，要不要一起去公園走走啊"
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         if _actor_id(messages) != "alex":
             return SILENT
         calls.append(messages)
@@ -338,6 +376,9 @@ def test_pair_cooldown_rejects_talk_then_allows_it() -> None:
     cursor = {"i": 0}
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         actor = _actor_id(messages)
         if actor == "mina":
             return SILENT
@@ -404,6 +445,9 @@ def test_situation_prompt_shows_company_unanswered_and_last_seen() -> None:
     question = "你今天要去公園嗎"
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         actor = _actor_id(messages)
         if actor == "alex":
             prompts.append(_user_text(messages))
@@ -461,6 +505,9 @@ def test_repeated_thought_retries() -> None:
     reason = "請換個角度想想現在的處境"
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         if _actor_id(messages) != "alex":
             return SILENT
         calls.append(messages)
@@ -543,6 +590,9 @@ def test_departure_sighting_is_replaced_when_met_again() -> None:
     met = "你最後看到 Mina 是在 office（辦公室）。"
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         actor = _actor_id(messages)
         if actor == "alex":
             prompts.append(_user_text(messages))
@@ -625,6 +675,9 @@ def test_opening_can_leave_but_arrival_stays_for_twenty_minutes() -> None:
     leave_thought = "坐不住想去公園"
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         if _actor_id(messages) != "alex":
             return SILENT
         name = phase["name"]
@@ -708,6 +761,9 @@ def test_repeat_prompts_and_thought_threshold() -> None:
     say_calls: list[list[dict[str, str]]] = []
 
     async def fake_say(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         if _actor_id(messages) != "alex":
             return SILENT
         say_calls.append(messages)
@@ -736,6 +792,9 @@ def test_repeat_prompts_and_thought_threshold() -> None:
     thought_calls: list[list[dict[str, str]]] = []
 
     async def fake_thought(messages: list[dict[str, str]], _schema: dict) -> str:
+        planned = _maybe_plan(messages)
+        if planned is not None:
+            return planned
         if _actor_id(messages) != "alex":
             return SILENT
         thought_calls.append(messages)

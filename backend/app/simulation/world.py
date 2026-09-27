@@ -128,7 +128,7 @@ class World:
     def _tick_llm(self) -> TickResult:
         action_time = self.time
         assert self.llm is not None
-        new_events, changed_ids = self.llm.advance(action_time)
+        new_events, changed_ids = self.llm.advance(action_time, self.day)
         for event in new_events:
             self.add_event(event)
         self.agents = {
