@@ -27,6 +27,7 @@ from app.simulation.fake_agent import distance, step_towards
 from app.simulation.poi import POIS
 
 IDLE_DECISION_MINUTES = 30
+MAX_CONSECUTIVE_DIALOGUE = 6
 MEMORY_PROMPT_LIMIT = 10
 MEMORY_STORE_LIMIT = 50
 DEFAULT_START = "08:00"
@@ -44,7 +45,7 @@ SYSTEM_PROMPT = """\
 想法（thought）與對話（say）必須使用繁體中文。
 action 只能是 move_to、stay、talk_to。
 move_to 的 target 只能是 home、cafe、office、park。
-talk_to 的 target 必須是另一位居民的 id。
+talk_to 的 target 必須是同地點、且沒有在移動的另一位居民 id。
 stay 的 target 必須是空字串。
 沒有要說的話時，say 必須是空字串。
 thought 只寫一句內心話。
@@ -74,8 +75,8 @@ class Resident:
         default_factory=lambda: deque(maxlen=MEMORY_STORE_LIMIT)
     )
 
-    def remember(self, item: str) -> None:
-        self.memories.append(item)
+    def remember(self, time_str: str, item: str) -> None:
+        self.memories.append(f"[{time_str}] {item}")
 
 
 @dataclass
@@ -83,12 +84,65 @@ class RunStats:
     calls: int = 0
     failures: int = 0
     total_seconds: float = 0.0
+    memories: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def average_seconds(self) -> float:
         if self.calls == 0:
             return 0.0
         return self.total_seconds / self.calls
+
+
+def pair_key(left_id: str, right_id: str) -> tuple[str, str]:
+    if left_id < right_id:
+        return (left_id, right_id)
+    return (right_id, left_id)
+
+
+@dataclass
+class DialogueTracker:
+    """Consecutive talk_to lines between a pair. Six ends the exchange."""
+
+    counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    ended: set[tuple[str, str]] = field(default_factory=set)
+    reply_next: dict[str, str] = field(default_factory=dict)
+
+    def blocked(self, actor_id: str, other_id: str) -> str | None:
+        if pair_key(actor_id, other_id) in self.ended:
+            return "連續對話已達 6 句，結束"
+        return None
+
+    def finish_talk(self, actor_id: str, other_id: str) -> str | None:
+        key = pair_key(actor_id, other_id)
+        for other_key in list(self.counts):
+            if actor_id in other_key and other_key != key:
+                del self.counts[other_key]
+        count = self.counts.get(key, 0) + 1
+        self.counts[key] = count
+        self.reply_next.pop(actor_id, None)
+        if count >= MAX_CONSECUTIVE_DIALOGUE:
+            self.ended.add(key)
+            del self.counts[key]
+            self._clear_replies(key)
+            return "連續對話已達 6 句，結束"
+        self.reply_next[other_id] = actor_id
+        return None
+
+    def abandon(self, actor_id: str, partner_id: str | None) -> None:
+        if partner_id is None:
+            return
+        self.counts.pop(pair_key(actor_id, partner_id), None)
+        self.reply_next.pop(actor_id, None)
+
+    def drop_pair(self, actor_id: str, partner_id: str) -> None:
+        self.counts.pop(pair_key(actor_id, partner_id), None)
+
+    def _clear_replies(self, key: tuple[str, str]) -> None:
+        self.reply_next = {
+            listener: speaker
+            for listener, speaker in self.reply_next.items()
+            if pair_key(listener, speaker) != key
+        }
 
 
 def _persona(resident_id: str, name: str, text: str) -> Resident:
@@ -260,10 +314,13 @@ def validate_decision(
 ) -> str | None:
     if decision.action == "move_to" and decision.target not in POIS:
         return f"未知地點 {decision.target}"
-    if decision.action == "talk_to" and (
-        decision.target == actor.id or decision.target not in by_id
-    ):
+    if decision.action != "talk_to":
+        return None
+    if decision.target == actor.id or decision.target not in by_id:
         return f"無法對話的對象 {decision.target}"
+    other = by_id[decision.target]
+    if other.location != actor.location or other.state != "idle":
+        return f"{other.name} 不在同地點或正在移動"
     return None
 
 
@@ -287,33 +344,44 @@ def apply_decision(
     actor: Resident,
     decision: Decision,
     by_id: dict[str, Resident],
+    time_str: str,
+    dialogue: DialogueTracker,
+    *,
+    is_reply: bool,
+    partner: str | None,
 ) -> str | None:
     if decision.action == "move_to" and decision.target == actor.location:
         actor.state = "idle"
         actor.idle_minutes = 0
-        actor.remember(f"人已經在 {actor.location}，留下")
+        actor.remember(time_str, f"人已經在 {actor.location}，留下")
+        if is_reply:
+            dialogue.abandon(actor.id, partner)
         return "已在當地，改為停留"
     if decision.action == "move_to":
         actor.target_location = decision.target
         actor.state = "walking"
         actor.idle_minutes = 0
-        actor.remember(f"決定前往 {decision.target}")
+        actor.remember(time_str, f"決定前往 {decision.target}")
+        if is_reply:
+            dialogue.abandon(actor.id, partner)
         return None
     if decision.action == "talk_to":
         other = by_id[decision.target]
         utterance = decision.say.strip()
         if utterance:
-            actor.remember(f"我對 {other.name} 說：{utterance}")
-            other.remember(f"聽到 {actor.name} 說：{utterance}")
+            actor.remember(time_str, f"我對 {other.name} 說：{utterance}")
+            other.remember(time_str, f"聽到 {actor.name} 說：{utterance}")
         else:
-            actor.remember(f"想跟 {other.name} 說話，但沒說出內容")
+            actor.remember(time_str, f"想跟 {other.name} 說話，但沒說出內容")
         actor.state = "idle"
         actor.idle_minutes = 0
-        return None
+        return dialogue.finish_talk(actor.id, other.id)
     actor.state = "idle"
     actor.target_location = actor.location
     actor.idle_minutes = 0
-    actor.remember("決定留下")
+    actor.remember(time_str, "決定留下")
+    if is_reply:
+        dialogue.abandon(actor.id, partner)
     return None
 
 
@@ -342,15 +410,19 @@ def format_decision_line(
     return "｜".join(parts)
 
 
-def note_arrival(actor: Resident, residents: list[Resident]) -> None:
+def note_arrival(
+    actor: Resident,
+    residents: list[Resident],
+    time_str: str,
+) -> None:
     company = people_here(actor, residents)
     if company:
         seen = "、".join(other.name for other in company)
     else:
         seen = "沒有別人"
-    actor.remember(f"抵達 {actor.location}，看到 {seen}")
+    actor.remember(time_str, f"抵達 {actor.location}，看到 {seen}")
     for other in company:
-        other.remember(f"看到 {actor.name} 抵達 {actor.location}")
+        other.remember(time_str, f"看到 {actor.name} 抵達 {actor.location}")
 
 
 def step_resident(resident: Resident) -> bool:
@@ -407,6 +479,9 @@ def run_town(
     destination.parent.mkdir(parents=True, exist_ok=True)
     stats = RunStats()
     time_str = start
+    opening = True
+    dialogue = DialogueTracker()
+    reply_now: dict[str, str] = {}
 
     def emit(line: str, handle: object) -> None:
         if echo:
@@ -426,22 +501,35 @@ def run_town(
                 if resident.state == "walking" and step_resident(resident):
                     arrivals.append(resident)
             for resident in arrivals:
-                note_arrival(resident, residents)
+                note_arrival(resident, residents, time_str)
             arrived_ids = {resident.id for resident in arrivals}
-            deciders = [
-                resident
+            if opening:
+                decider_ids = {resident.id for resident in residents}
+                opening = False
+            else:
+                decider_ids = set()
+            decider_ids.update(arrived_ids)
+            decider_ids.update(
+                resident.id
                 for resident in residents
-                if resident.id in arrived_ids
-                or (
-                    resident.state == "idle"
-                    and resident.idle_minutes >= IDLE_DECISION_MINUTES
-                )
+                if resident.state == "idle"
+                and resident.idle_minutes >= IDLE_DECISION_MINUTES
+            )
+            for resident_id, speaker_id in reply_now.items():
+                resident = by_id[resident_id]
+                if resident.state == "idle":
+                    decider_ids.add(resident_id)
+                else:
+                    dialogue.drop_pair(resident_id, speaker_id)
+            deciders = [
+                resident for resident in residents if resident.id in decider_ids
             ]
             deciders.sort(key=lambda resident: resident.id)
             decided: set[str] = set()
             for resident in deciders:
                 messages = build_messages(resident, time_str, residents)
                 decision, failed = request_decision(chat, messages, stats)
+                cap_note: str | None = None
                 if failed:
                     stats.failures += 1
                 else:
@@ -452,7 +540,25 @@ def run_town(
                             action="stay",
                             thought=f"（LLM 失敗：{problem}）",
                         )
-                note = apply_decision(resident, decision, by_id)
+                    elif decision.action == "talk_to":
+                        cap_note = dialogue.blocked(resident.id, decision.target)
+                        if cap_note is not None:
+                            decision = Decision(
+                                action="stay",
+                                thought=decision.thought,
+                            )
+                is_reply = resident.id in reply_now
+                note = apply_decision(
+                    resident,
+                    decision,
+                    by_id,
+                    time_str,
+                    dialogue,
+                    is_reply=is_reply,
+                    partner=reply_now.get(resident.id),
+                )
+                if cap_note is not None:
+                    note = cap_note
                 emit(
                     format_decision_line(
                         time_str, resident, decision, by_id, note
@@ -460,10 +566,16 @@ def run_town(
                     handle,
                 )
                 decided.add(resident.id)
+            reply_now = dialogue.reply_next
+            dialogue.reply_next = {}
+            dialogue.ended.clear()
             for resident in residents:
                 if resident.state == "idle" and resident.id not in decided:
                     resident.idle_minutes += 1
             _day, time_str = advance_clock(1, time_str, 1)
+        stats.memories = {
+            resident.id: tuple(resident.memories) for resident in residents
+        }
         emit(format_stats(stats), handle)
     return stats
 
