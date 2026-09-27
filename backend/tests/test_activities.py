@@ -40,13 +40,6 @@ def _drain(world: World) -> None:
         asyncio.run(service_pending(world.llm))
 
 
-def _do_targets(schema: dict) -> list[str] | None:
-    for branch in schema["oneOf"]:
-        if branch["properties"]["action"]["const"] == "do":
-            return branch["properties"]["target"]["enum"]
-    return None
-
-
 def test_do_target_is_limited_to_activities_here() -> None:
     world = World(brain_mode="llm", decider=lambda _m, _s: SILENT)
     assert world.llm is not None
@@ -54,17 +47,37 @@ def test_do_target_is_limited_to_activities_here() -> None:
     mina = world.llm.by_id["mina"]
 
     at_home = decision_schema("mina", residents)
-    assert _do_targets(at_home) == ["cook", "rest", "sleep"]
+    assert "do" in at_home["properties"]["action"]["enum"]
     assert "order_coffee" not in at_home["properties"]["target"]["enum"]
+    assert validate_decision(
+        Decision(action="do", target="order_coffee"),
+        mina,
+        world.llm.by_id,
+    )
 
     mina.location = "cafe"
     at_cafe = decision_schema("mina", residents)
-    assert _do_targets(at_cafe) == ["order_coffee", "read_book", "chat_staff"]
     assert "write_report" not in at_cafe["properties"]["target"]["enum"]
+    assert (
+        validate_decision(
+            Decision(action="do", target="write_report"),
+            mina,
+            world.llm.by_id,
+        )
+        is not None
+    )
+    assert (
+        validate_decision(
+            Decision(action="do", target="order_coffee"),
+            mina,
+            world.llm.by_id,
+        )
+        is None
+    )
 
     mina.location = "alex_home"
     visiting = decision_schema("mina", residents)
-    assert _do_targets(visiting) is None
+    assert "do" not in visiting["properties"]["action"]["enum"]
     assert activities_for("alex_home", "mina") == ()
     problem = validate_decision(
         Decision(action="do", target="cook"),
@@ -72,6 +85,14 @@ def test_do_target_is_limited_to_activities_here() -> None:
         world.llm.by_id,
     )
     assert problem is not None
+    assert (
+        validate_decision(
+            Decision(action="stay", target="cafe"),
+            mina,
+            world.llm.by_id,
+        )
+        is not None
+    )
 
 
 def test_activity_blocks_decisions_and_is_remembered() -> None:

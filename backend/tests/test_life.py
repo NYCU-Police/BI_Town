@@ -61,16 +61,24 @@ def test_plan_schema_limits_place_and_count() -> None:
     items = schema["properties"]["items"]
     assert items["minItems"] == 4
     assert items["maxItems"] == 6
-    by_place = {
-        branch["properties"]["place"]["const"]: branch["properties"]["activity"][
-            "enum"
-        ]
-        for branch in items["items"]["oneOf"]
-    }
-    assert by_place["mina_home"] == ["cook", "rest", "sleep"]
-    assert "alex_home" not in by_place
-    assert by_place["cafe"] == ["order_coffee", "read_book", "chat_staff"]
-    assert by_place["office"] == ["write_report", "sort_accounts", "meeting"]
+    item = items["items"]
+    assert item["required"] == ["time", "place", "activity", "reason"]
+    assert "mina_home" in item["properties"]["place"]["enum"]
+    assert "alex_home" not in item["properties"]["place"]["enum"]
+    assert item["properties"]["activity"]["enum"][:3] == ["cook", "rest", "sleep"]
+    for activity_id in ("order_coffee", "write_report"):
+        assert activity_id in item["properties"]["activity"]["enum"]
+    mismatch, problem = parse_plan(
+        '{"items":['
+        '{"time":"09:00","place":"cafe","activity":"cook","reason":"想煮飯"},'
+        '{"time":"10:00","place":"office","activity":"write_report","reason":"寫報告"},'
+        '{"time":"12:00","place":"park","activity":"stroll","reason":"透氣"},'
+        '{"time":"18:00","place":"library","activity":"study","reason":"安靜"}'
+        "]}",
+        "mina",
+    )
+    assert mismatch == []
+    assert problem is not None
 
     short = _PLAN.replace(
         '{"time":"18:00","place":"library","activity":"study","reason":"安靜一下"}',
