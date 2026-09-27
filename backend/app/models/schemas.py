@@ -12,6 +12,7 @@ class HealthResponse(BaseModel):
     version: str
     git_commit: str
     deployed_at: str
+    brain_mode: Literal["rules", "llm"]
 
 
 class Position(BaseModel):

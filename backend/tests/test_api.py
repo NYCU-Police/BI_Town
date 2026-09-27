@@ -26,6 +26,7 @@ def test_health(monkeypatch: pytest.MonkeyPatch) -> None:
         "version": VERSION,
         "git_commit": "unknown",
         "deployed_at": "unknown",
+        "brain_mode": "rules",
     }
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["cross-origin-opener-policy"] == "same-origin"
@@ -40,6 +41,14 @@ def test_health_reports_deploy_identity(monkeypatch: pytest.MonkeyPatch) -> None
     body = response.json()
     assert body["git_commit"] == "abc123def"
     assert body["deployed_at"] == "2026-09-24T10:00:00Z"
+
+
+def test_health_reports_llm_brain_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODE", "llm")
+    state.reset_world()
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json()["brain_mode"] == "llm"
 
 
 def test_health_blank_identity_is_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
