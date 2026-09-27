@@ -12,6 +12,7 @@ import os
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from typing import Any, Literal
 
 import httpx
@@ -21,10 +22,15 @@ from app.config import (
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_URL,
+    GAME_MINUTES_PER_TICK,
+    LLM_DIALOGUE_COOLDOWN_MINUTES,
     LLM_IDLE_DECISION_MINUTES,
     LLM_MAX_CONSECUTIVE_DIALOGUE,
     LLM_MEMORY_PROMPT_LIMIT,
     LLM_MEMORY_STORE_LIMIT,
+    LLM_RECENT_SAY_LIMIT,
+    LLM_RECENT_SAY_PROMPT_LIMIT,
+    LLM_SAY_SIMILARITY,
     LLM_TEMPERATURE,
 )
 from app.models.schemas import Agent, Position, WorldEvent
@@ -39,14 +45,25 @@ SYSTEM_PROMPT = """\
 你是小鎮居民。只輸出一個 JSON 物件，不要加其他文字。
 想法（thought）與對話（say）必須使用繁體中文。
 action 只能是 move_to、stay、talk_to。
-move_to 的 target 只能是 home、cafe、office、park。
+move_to 的 target 只能是 home（家）、cafe（咖啡廳）、office（辦公室）、park（公園）。
 talk_to 的 target 必須是同地點、且沒有在移動的另一位居民 id。
 stay 的 target 必須是空字串。
 沒有要說的話時，say 必須是空字串。
 thought 只寫一句內心話。
 想見的人不在這裡時，可以根據記憶去他可能在的地方找他。
 不要重複上一次的想法，想法要反映現在的處境。
+對話沒有新內容、或對方重複同樣的話時，就結束對話：去別的地方或做自己的事。
+不要重複自己說過的話，也不要照搬別人說過的話。
+你已經在某地點時，不要邀請別人去同一個地點。
 """
+
+PLACE_LABELS = {
+    "home": "家",
+    "cafe": "咖啡廳",
+    "office": "辦公室",
+    "park": "公園",
+}
+REPEAT_SAY = "你已經說過類似的話，請說新的內容，或結束對話去做別的事"
 
 
 class Decision(BaseModel):
@@ -72,6 +89,9 @@ class Resident:
     last_thought: str = ""
     memories: deque[str] = field(
         default_factory=lambda: deque(maxlen=LLM_MEMORY_STORE_LIMIT)
+    )
+    recent_says: deque[str] = field(
+        default_factory=lambda: deque(maxlen=LLM_RECENT_SAY_LIMIT)
     )
 
     def remember(self, time_str: str, item: str) -> None:
@@ -100,13 +120,26 @@ def pair_key(left_id: str, right_id: str) -> tuple[str, str]:
 @dataclass
 class DialogueTracker:
     counts: dict[tuple[str, str], int] = field(default_factory=dict)
-    ended: set[tuple[str, str]] = field(default_factory=set)
+    remaining: dict[tuple[str, str], int] = field(default_factory=dict)
+    fresh: set[tuple[str, str]] = field(default_factory=set)
     reply_next: dict[str, str] = field(default_factory=dict)
 
     def blocked(self, actor_id: str, other_id: str) -> str | None:
-        if pair_key(actor_id, other_id) in self.ended:
-            return "連續對話已達 6 句，結束"
-        return None
+        if pair_key(actor_id, other_id) not in self.remaining:
+            return None
+        return (
+            f"連續對話已達 {LLM_MAX_CONSECUTIVE_DIALOGUE} 句，"
+            f"{LLM_DIALOGUE_COOLDOWN_MINUTES} 分鐘內不能再對話"
+        )
+
+    def tick_cooldowns(self) -> None:
+        for key in list(self.remaining):
+            if key in self.fresh:
+                continue
+            self.remaining[key] -= GAME_MINUTES_PER_TICK
+            if self.remaining[key] <= 0:
+                del self.remaining[key]
+        self.fresh.clear()
 
     def finish_talk(self, actor_id: str, other_id: str) -> None:
         key = pair_key(actor_id, other_id)
@@ -117,7 +150,8 @@ class DialogueTracker:
         self.counts[key] = count
         self.reply_next.pop(actor_id, None)
         if count >= LLM_MAX_CONSECUTIVE_DIALOGUE:
-            self.ended.add(key)
+            self.remaining[key] = LLM_DIALOGUE_COOLDOWN_MINUTES
+            self.fresh.add(key)
             del self.counts[key]
             self.reply_next = {
                 listener: speaker
@@ -279,6 +313,36 @@ def coerce_target(
     return decision
 
 
+def place_name(poi_id: str) -> str:
+    label = PLACE_LABELS.get(poi_id)
+    if label is None:
+        return poi_id
+    return f"{poi_id}（{label}）"
+
+
+def label_places(text: str) -> str:
+    labeled = text
+    for poi_id, label in PLACE_LABELS.items():
+        token = f"{poi_id}（{label}）"
+        labeled = labeled.replace(token, f"\x00{poi_id}\x00")
+    for poi_id in PLACE_LABELS:
+        labeled = labeled.replace(poi_id, place_name(poi_id))
+    for poi_id, label in PLACE_LABELS.items():
+        labeled = labeled.replace(f"\x00{poi_id}\x00", f"{poi_id}（{label}）")
+    return labeled
+
+
+def repeated_say(actor: Resident, say: str) -> str | None:
+    utterance = say.strip()
+    if not utterance:
+        return None
+    for previous in actor.recent_says:
+        ratio = SequenceMatcher(None, utterance, previous).ratio()
+        if ratio >= LLM_SAY_SIMILARITY:
+            return REPEAT_SAY
+    return None
+
+
 def people_here(actor: Resident, residents: list[Resident]) -> list[Resident]:
     others = [
         other
@@ -306,18 +370,26 @@ def build_messages(
         here = "沒有其他人"
     recent = list(actor.memories)[-LLM_MEMORY_PROMPT_LIMIT:]
     if recent:
-        memory_text = "\n".join(f"- {item}" for item in recent)
+        memory_text = "\n".join(f"- {label_places(item)}" for item in recent)
     else:
         memory_text = "- （還沒有記憶）"
+    spoken = list(actor.recent_says)[-LLM_RECENT_SAY_PROMPT_LIMIT:]
+    if spoken:
+        spoken_text = "\n".join(f"- {line}" for line in spoken)
+    else:
+        spoken_text = "- （還沒說過）"
+    places = "、".join(place_name(poi_id) for poi_id in POIS)
+    here_label = place_name(actor.location)
     user = (
         f"你是 {actor.name}（id: {actor.id}）。\n"
         f"{actor.persona}\n\n"
-        f"現在是 {time_str}，你在 {actor.location}。\n"
+        f"現在是 {time_str}，你在 {here_label}。\n"
         f"其他居民：{roster}\n"
         f"同地點、沒有在移動的人：{here}\n"
-        f"地點 id：home、cafe、office、park\n"
+        f"地點：{places}\n"
         f"上一次的想法：{actor.last_thought or '（還沒有）'}\n"
-        f"你已經在 {actor.location} 待了 {actor.minutes_here} 分鐘。\n"
+        f"你已經在 {here_label} 待了 {actor.minutes_here} 分鐘。\n"
+        f"你最近說過的話：\n{spoken_text}\n"
         f"最近的記憶：\n{memory_text}"
     )
     return [
@@ -331,6 +403,9 @@ def validate_decision(
     actor: Resident,
     by_id: dict[str, Resident],
 ) -> str | None:
+    echo = repeated_say(actor, decision.say)
+    if echo is not None:
+        return echo
     if decision.action == "move_to" and decision.target not in POIS:
         return f"未知地點 {decision.target}"
     if decision.action != "talk_to":
@@ -393,7 +468,7 @@ class LlmSession:
             resident.minutes_here += 1
             if resident.id not in applied:
                 resident.idle_minutes += 1
-        self.dialogue.ended.clear()
+        self.dialogue.tick_cooldowns()
         return events, changed
 
     def _apply(
@@ -441,6 +516,7 @@ class LlmSession:
             )
         say = decision.say.strip()
         if say:
+            actor.recent_says.append(say)
             events.append(
                 WorldEvent(
                     timestamp=time_str,
