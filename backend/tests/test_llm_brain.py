@@ -1,8 +1,10 @@
 import asyncio
+import json
 import logging
 import time
 
 from app import state
+from app.config import LLM_DIALOGUE_COOLDOWN_MINUTES
 from app.simulation.llm_session import service_pending
 from app.simulation.loop import broadcast_tick
 from app.simulation.world import World
@@ -169,3 +171,185 @@ def test_invalid_target_retries_once_then_stays_quietly(caplog) -> None:
     assert alex_events == []
     assert all("LLM 失敗" not in (event.content or "") for event in result.events)
     assert any("rina" in record.message for record in caplog.records)
+
+
+SILENT = '{"action":"stay","target":"","say":"","thought":""}'
+REPEAT_REASON = "你已經說過類似的話，請說新的內容，或結束對話去做別的事"
+
+
+def _decision(
+    action: str,
+    target: str = "",
+    say: str = "",
+    thought: str = "想一下",
+) -> str:
+    return json.dumps(
+        {"action": action, "target": target, "say": say, "thought": thought},
+        ensure_ascii=False,
+    )
+
+
+def _user_text(messages: list[dict[str, str]]) -> str:
+    return next(item["content"] for item in messages if item["role"] == "user")
+
+
+def _drain(world: World) -> None:
+    assert world.llm is not None
+    if world.llm.queue.qsize():
+        asyncio.run(service_pending(world.llm))
+
+
+def test_prompt_names_places_and_recent_lines() -> None:
+    prompts: list[str] = []
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        actor = _actor_id(messages)
+        if actor != "alex":
+            return SILENT
+        prompts.append(_user_text(messages))
+        if len(prompts) == 1:
+            return _decision("move_to", "cafe", "我去咖啡廳坐一下", "換個地方")
+        return SILENT
+
+    world = World(brain_mode="llm", decider=fake)
+    for _ in range(20):
+        world.tick()
+        _drain(world)
+        if len(prompts) >= 2:
+            break
+
+    assert len(prompts) >= 2
+    first = prompts[0]
+    assert "home（家）" in first
+    assert "cafe（咖啡廳）" in first
+    assert "office（辦公室）" in first
+    assert "park（公園）" in first
+    second = prompts[1]
+    assert "cafe（咖啡廳）" in second
+    assert "你最近說過的話" in second
+    assert "我去咖啡廳坐一下" in second
+
+
+def test_system_prompt_tells_them_to_stop_repeating() -> None:
+    captured: list[list[dict[str, str]]] = []
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        captured.append(messages)
+        return SILENT
+
+    world = World(brain_mode="llm", decider=fake)
+    world.tick()
+    _drain(world)
+    system = next(item["content"] for item in captured[0] if item["role"] == "system")
+    end_talk = (
+        "對話沒有新內容、或對方重複同樣的話時，"
+        "就結束對話：去別的地方或做自己的事"
+    )
+    assert end_talk in system
+    assert "不要重複自己說過的話，也不要照搬別人說過的話" in system
+    assert "你已經在某地點時，不要邀請別人去同一個地點" in system
+
+
+def test_similar_say_retries_then_stays_silent() -> None:
+    calls: list[list[dict[str, str]]] = []
+    first = "早安，要不要一起去公園走走"
+    echo = "早安，要不要一起去公園走走啊"
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        if _actor_id(messages) != "alex":
+            return SILENT
+        calls.append(messages)
+        utterance = first if len(calls) == 1 else echo
+        return _decision("stay", say=utterance, thought="想打招呼")
+
+    world = World(brain_mode="llm", decider=fake)
+    world.tick()
+    _drain(world)
+    world.tick()
+    assert world.llm is not None
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    result = world.tick()
+
+    assert len(calls) == 3
+    assert REPEAT_REASON in calls[2][-1]["content"]
+    assert "你最近說過的話" in _user_text(calls[1])
+    assert first in _user_text(calls[1])
+    assert [event for event in result.events if event.event == "said"] == []
+
+
+def test_pair_cooldown_rejects_talk_then_allows_it() -> None:
+    lines = [
+        "風把帽子吹走了",
+        "工作排到很晚",
+        "椅子被人坐滿",
+        "這杯飲料涼掉",
+        "明天再決定時間",
+        "冷卻結束後換話題",
+    ]
+    cursor = {"i": 0}
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        actor = _actor_id(messages)
+        if actor == "mina":
+            return SILENT
+        say = lines[cursor["i"]]
+        cursor["i"] += 1
+        other = "rin" if actor == "alex" else "alex"
+        return _decision("talk_to", other, say, "想說話")
+
+    world = World(brain_mode="llm", decider=fake)
+    assert world.llm is not None
+    said: list[str] = []
+    for _ in range(12):
+        result = world.tick()
+        said.extend(
+            event.content or ""
+            for event in result.events
+            if event.event == "said"
+        )
+        if len(said) >= 4 and world.llm.dialogue.blocked("alex", "rin"):
+            break
+        _drain(world)
+
+    assert len(said) == 4
+    assert world.llm.dialogue.blocked("alex", "rin")
+
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    rejected = world.tick()
+    assert [event for event in rejected.events if event.event == "said"] == []
+
+    consumed = 1
+    while world.llm.dialogue.blocked("alex", "rin"):
+        world.llm.dialogue.tick_cooldowns()
+        consumed += 1
+        assert consumed <= LLM_DIALOGUE_COOLDOWN_MINUTES
+    assert consumed == LLM_DIALOGUE_COOLDOWN_MINUTES
+
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    allowed = world.tick()
+    resumed = [
+        event
+        for event in allowed.events
+        if event.event == "said" and event.agent_id == "alex"
+    ]
+    assert len(resumed) == 1
+    assert resumed[0].target_agent_id == "rin"
+    assert resumed[0].content == "冷卻結束後換話題"
