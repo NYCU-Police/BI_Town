@@ -26,18 +26,18 @@ const PLACE_NAMES := {
 	"park": "公園",
 }
 
-## North-row places sit under a roof, so the label goes above that roof.
-## South-row places extend downward; the label stays above the door.
-const _LABEL_Y := {
-	"mina_home": -100.0,
-	"alex_home": -100.0,
-	"rin_home": -100.0,
-	"cafe": -100.0,
-	"store": -100.0,
-	"office": -48.0,
-	"library": -48.0,
-	"plaza": -48.0,
-	"park": -72.0,
+## Building labels are centered on the roof and sit on its top edge.
+## South-row roofs are the bottom row, so those labels stay on the building.
+const _LABEL_OFFSET := {
+	"mina_home": Vector2(-72, -96),
+	"alex_home": Vector2(-72, -96),
+	"rin_home": Vector2(-72, -96),
+	"cafe": Vector2(-72, -96),
+	"store": Vector2(-72, -96),
+	"office": Vector2(-72, 30),
+	"library": Vector2(-72, 30),
+	"plaza": Vector2(-72, -28),
+	"park": Vector2(-128, -52),
 }
 
 @export var npc_scene: PackedScene
@@ -59,15 +59,15 @@ func _ready() -> void:
 		node.position = POIS[poi_id]
 		var label := Label.new()
 		label.text = str(PLACE_NAMES[poi_id])
-		label.position = Vector2(-72, float(_LABEL_Y[poi_id]))
-		label.size = Vector2(144, 22)
+		label.position = _LABEL_OFFSET[poi_id]
+		label.size = Vector2(144, 16)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		label.add_theme_color_override("font_color", Color.WHITE)
 		label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
 		label.add_theme_constant_override("outline_size", 4)
-		label.add_theme_font_size_override("font_size", 14)
+		label.add_theme_font_size_override("font_size", 12)
 		node.add_child(label)
 		pois_root.add_child(node)
 
