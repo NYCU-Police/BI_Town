@@ -12,7 +12,7 @@ import os
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from pydantic import BaseModel, Field
@@ -33,7 +33,7 @@ from app.simulation.poi import POIS
 
 logger = logging.getLogger(__name__)
 
-Decider = Callable[[list[dict[str, str]]], Awaitable[str]]
+Decider = Callable[[list[dict[str, str]], dict[str, Any]], Awaitable[str]]
 
 SYSTEM_PROMPT = """\
 你是小鎮居民。只輸出一個 JSON 物件，不要加其他文字。
@@ -184,7 +184,6 @@ class OllamaDecider:
         self._url = base_url.rstrip("/") + "/api/chat"
         self._model = model
         self._timeout = timeout
-        self._schema = Decision.model_json_schema()
 
     @classmethod
     def from_env(cls) -> OllamaDecider:
@@ -203,7 +202,11 @@ class OllamaDecider:
             timeout=timeout,
         )
 
-    async def __call__(self, messages: list[dict[str, str]]) -> str:
+    async def __call__(
+        self,
+        messages: list[dict[str, str]],
+        schema: dict[str, Any],
+    ) -> str:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.post(
                 self._url,
@@ -212,7 +215,7 @@ class OllamaDecider:
                     "messages": messages,
                     "stream": False,
                     "think": False,
-                    "format": self._schema,
+                    "format": schema,
                     "options": {"temperature": LLM_TEMPERATURE},
                 },
             )
@@ -237,13 +240,43 @@ def parse_decision(raw: str) -> Decision:
     return Decision.model_validate_json(text)
 
 
-def _failure_thought(exc: Exception) -> str:
-    detail = str(exc).strip().replace("\n", " ")
-    if len(detail) > 80:
-        detail = detail[:77] + "..."
-    if detail:
-        return f"（LLM 失敗：{exc.__class__.__name__}：{detail}）"
-    return f"（LLM 失敗：{exc.__class__.__name__}）"
+def target_enum(actor_id: str, residents: list[Resident]) -> list[str]:
+    choices = [poi_id for poi_id in POIS if poi_id != actor_id]
+    others = sorted(resident.id for resident in residents if resident.id != actor_id)
+    for other_id in others:
+        if other_id not in choices:
+            choices.append(other_id)
+    choices.append("")
+    return choices
+
+
+def decision_schema(actor_id: str, residents: list[Resident]) -> dict[str, Any]:
+    schema = Decision.model_json_schema()
+    target = schema["properties"]["target"]
+    target["enum"] = target_enum(actor_id, residents)
+    return schema
+
+
+def coerce_target(
+    decision: Decision,
+    actor: Resident,
+    residents: list[Resident],
+) -> Decision:
+    allowed = set(target_enum(actor.id, residents))
+    target = decision.target.strip()
+    if target in allowed:
+        if target == decision.target:
+            return decision
+        return decision.model_copy(update={"target": target})
+    folded = target.casefold()
+    matches = [
+        resident
+        for resident in residents
+        if resident.id != actor.id and resident.name.casefold() == folded
+    ]
+    if len(matches) == 1:
+        return decision.model_copy(update={"target": matches[0].id})
+    return decision
 
 
 def people_here(actor: Resident, residents: list[Resident]) -> list[Resident]:
@@ -371,10 +404,11 @@ class LlmSession:
         actor = self.by_id.get(item.job.agent_id)
         if actor is None:
             return [], set()
-        decision = item.decision
+        decision = coerce_target(item.decision, actor, self.residents)
         problem = validate_decision(decision, actor, self.by_id)
         if problem is not None:
-            decision = Decision(action="stay", thought=f"（LLM 失敗：{problem}）")
+            logger.warning("LLM decision rejected for %s: %s", actor.id, problem)
+            decision = Decision(action="stay")
         elif decision.action == "talk_to" and self.dialogue.blocked(
             actor.id, decision.target
         ):
@@ -574,17 +608,93 @@ class LlmSession:
         )
 
 
+def _stay() -> Decision:
+    return Decision(action="stay")
+
+
+def _retry_messages(
+    messages: list[dict[str, str]],
+    raw: str,
+    problem: str,
+) -> list[dict[str, str]]:
+    note = f"上次的決定無效：{problem}。請修正 target 後重新輸出一個 JSON。"
+    return [
+        *messages,
+        {"role": "assistant", "content": raw},
+        {"role": "user", "content": note},
+    ]
+
+
+def _checked(
+    session: LlmSession,
+    agent_id: str,
+    decision: Decision,
+) -> tuple[Decision, str | None]:
+    actor = session.by_id.get(agent_id)
+    if actor is None:
+        return _stay(), "居民已不存在"
+    decision = coerce_target(decision, actor, session.residents)
+    return decision, validate_decision(decision, actor, session.by_id)
+
+
+async def _parse_reply(
+    decider: Decider,
+    messages: list[dict[str, str]],
+    schema: dict[str, Any],
+    agent_id: str,
+) -> tuple[str, Decision] | None:
+    try:
+        raw = await decider(messages, schema)
+        return raw, parse_decision(raw)
+    except Exception as exc:
+        logger.warning("LLM decision failed for %s", agent_id, exc_info=exc)
+        return None
+
+
+def _enqueue_decision(
+    session: LlmSession,
+    job: DecisionJob,
+    decision: Decision,
+) -> None:
+    session.inbox.append(ReadyDecision(job=job, decision=decision))
+
+
 async def complete_job(session: LlmSession, job: DecisionJob) -> None:
     decider = session.decider
     if decider is None:
         decider = OllamaDecider.from_env()
-    try:
-        raw = await decider(job.messages)
-        decision = parse_decision(raw)
-    except Exception as exc:
-        logger.warning("LLM decision failed for %s", job.agent_id, exc_info=exc)
-        decision = Decision(action="stay", thought=_failure_thought(exc))
-    session.inbox.append(ReadyDecision(job=job, decision=decision))
+    actor = session.by_id.get(job.agent_id)
+    if actor is None:
+        logger.warning("LLM decision skipped for unknown agent %s", job.agent_id)
+        _enqueue_decision(session, job, _stay())
+        return
+    schema = decision_schema(actor.id, session.residents)
+    messages = list(job.messages)
+    asked = await _parse_reply(decider, messages, schema, job.agent_id)
+    if asked is None:
+        _enqueue_decision(session, job, _stay())
+        return
+    raw, decision = asked
+    decision, problem = _checked(session, job.agent_id, decision)
+    if problem is None:
+        _enqueue_decision(session, job, decision)
+        return
+    logger.warning("LLM decision rejected for %s: %s", job.agent_id, problem)
+    retried = await _parse_reply(
+        decider,
+        _retry_messages(messages, raw, problem),
+        schema,
+        job.agent_id,
+    )
+    if retried is None:
+        _enqueue_decision(session, job, _stay())
+        return
+    _raw, decision = retried
+    decision, problem = _checked(session, job.agent_id, decision)
+    if problem is not None:
+        logger.warning("LLM decision failed for %s: %s", job.agent_id, problem)
+        decision = _stay()
+    _enqueue_decision(session, job, decision)
 
 
 async def service_pending(session: LlmSession) -> None:
