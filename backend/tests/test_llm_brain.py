@@ -152,12 +152,15 @@ def test_decision_schema_limits_target_to_other_ids() -> None:
     ]
     assert "rin" not in schemas["rin"]["properties"]["target"]["enum"]
     for actor_id in ("mina", "alex", "rin"):
-        do_branch = next(
-            branch
-            for branch in schemas[actor_id]["oneOf"]
-            if branch["properties"]["action"]["const"] == "do"
-        )
-        assert do_branch["properties"]["target"]["enum"] == home_activities
+        assert schemas[actor_id]["required"] == [
+            "action",
+            "target",
+            "say",
+            "thought",
+        ]
+        assert "do" in schemas[actor_id]["properties"]["action"]["enum"]
+        for activity_id in home_activities:
+            assert activity_id in schemas[actor_id]["properties"]["target"]["enum"]
 
 
 def test_resident_name_target_maps_to_id() -> None:

@@ -392,55 +392,39 @@ def _actor(actor_id: str, residents: list[Resident]) -> Resident:
 
 
 def decision_schema(actor_id: str, residents: list[Resident]) -> dict[str, Any]:
+    """Flat schema. Ollama drops fields when the schema uses oneOf or const."""
     actor = _actor(actor_id, residents)
     places = [poi_id for poi_id in POIS]
     people = sorted(
         resident.id for resident in residents if resident.id != actor_id
     )
     local = [activity.id for activity in activities_for(actor.location, actor.id)]
-    schema = Decision.model_json_schema()
     actions = ["move_to", "stay", "talk_to"]
-    branches = [
-        {"action": "move_to", "targets": places},
-        {"action": "stay", "targets": [""]},
-        {"action": "talk_to", "targets": people},
-    ]
     if local:
         actions.append("do")
-        branches.append({"action": "do", "targets": local})
-    schema["properties"]["action"]["enum"] = actions
-    schema["properties"]["target"]["enum"] = [*places, *people, *local, ""]
-    schema["oneOf"] = [
-        {
-            "properties": {
-                "action": {"const": branch["action"]},
-                "target": {"enum": branch["targets"]},
-            },
-            "required": ["action", "target"],
-        }
-        for branch in branches
-    ]
-    return schema
+    return {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": actions},
+            "target": {"type": "string", "enum": [*places, *people, *local, ""]},
+            "say": {"type": "string"},
+            "thought": {"type": "string"},
+        },
+        "required": ["action", "target", "say", "thought"],
+    }
 
 
 def plan_schema(actor_id: str) -> dict[str, Any]:
-    branches = []
-    for poi_id, _poi in POIS.items():
-        activities = [activity.id for activity in activities_for(poi_id, actor_id)]
-        if not activities:
+    places: list[str] = []
+    activities: list[str] = []
+    for poi_id in POIS:
+        local = [activity.id for activity in activities_for(poi_id, actor_id)]
+        if not local:
             continue
-        branches.append(
-            {
-                "type": "object",
-                "properties": {
-                    "time": {"type": "string", "pattern": r"^\d{2}:\d{2}$"},
-                    "place": {"const": poi_id},
-                    "activity": {"enum": activities},
-                    "reason": {"type": "string", "minLength": 1},
-                },
-                "required": ["time", "place", "activity", "reason"],
-            }
-        )
+        places.append(poi_id)
+        for activity_id in local:
+            if activity_id not in activities:
+                activities.append(activity_id)
     return {
         "type": "object",
         "properties": {
@@ -448,7 +432,16 @@ def plan_schema(actor_id: str) -> dict[str, Any]:
                 "type": "array",
                 "minItems": PLAN_MIN_ITEMS,
                 "maxItems": PLAN_MAX_ITEMS,
-                "items": {"oneOf": branches},
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "time": {"type": "string"},
+                        "place": {"type": "string", "enum": places},
+                        "activity": {"type": "string", "enum": activities},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["time", "place", "activity", "reason"],
+                },
             }
         },
         "required": ["items"],
@@ -463,7 +456,7 @@ def review_schema() -> dict[str, Any]:
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 3,
-                "items": {"type": "string", "minLength": 1},
+                "items": {"type": "string"},
             }
         },
         "required": ["sentences"],
@@ -837,6 +830,10 @@ def validate_decision(
     echo = repeated_thought(actor, decision.thought)
     if echo is not None:
         return echo
+    if decision.action == "stay":
+        if decision.target != "":
+            return "stay 的 target 必須是空字串"
+        return None
     if decision.action == "move_to" and decision.target not in POIS:
         return f"未知地點 {decision.target}"
     if decision.action == "do":
