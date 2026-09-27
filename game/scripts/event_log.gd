@@ -10,11 +10,13 @@ func clear_events() -> void:
 	text = ""
 
 
-func add_event(line: String, muted: bool = false) -> void:
-	var shown := line
-	if muted:
-		shown = "[color=#9a9a94]%s[/color]" % line
-	_lines.push_front(shown)
-	if _lines.size() > MAX_EVENTS:
-		_lines.resize(MAX_EVENTS)
-	text = "\n".join(_lines)
+func add_event(line: String) -> void:
+	_lines.append(line)
+	while _lines.size() > MAX_EVENTS:
+		_lines.remove_at(0)
+	text = "\n\n".join(_lines)
+	call_deferred("_follow_bottom")
+
+
+func _follow_bottom() -> void:
+	scroll_to_line(get_line_count())

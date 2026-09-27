@@ -41,9 +41,9 @@ func apply_snapshot(data: Dictionary) -> void:
 	if typeof(events) != TYPE_ARRAY:
 		push_error("world_snapshot.events is not an array")
 		return
-	for i in range(events.size() - 1, -1, -1):
-		if typeof(events[i]) == TYPE_DICTIONARY:
-			_append_event(events[i])
+	for event in events:
+		if typeof(event) == TYPE_DICTIONARY:
+			_append_event(event)
 
 
 func apply_agent_update(data: Dictionary) -> void:
@@ -223,31 +223,68 @@ func _remember_agent(agent: Dictionary) -> void:
 	_agent_names[agent_id] = str(agent.get("name", agent_id))
 
 
+const _NAME_COLORS := {
+	"mina": "#e8737a",
+	"alex": "#59b8c7",
+	"rin": "#f2c759",
+}
+const _SAID_COLOR := "#d1d1cc"
+const _THOUGHT_COLOR := "#8e8e89"
+const _MOVE_COLOR := "#7a7a76"
+
+
 func _append_event(data: Dictionary) -> void:
 	if not _event_log.has_method("add_event"):
 		push_error("EventLog is missing add_event()")
 		return
-	var muted := str(data.get("event", "")) == "thought"
-	_event_log.add_event(_escape_bbcode(_format_event(data)), muted)
+	_event_log.add_event(_format_event(data))
 
 
 func _escape_bbcode(line: String) -> String:
 	return line.replace("[", "[lb]")
 
 
+func _colored_name(agent_id: String) -> String:
+	var agent_name := str(_agent_names.get(agent_id, agent_id.capitalize()))
+	var color := str(_NAME_COLORS.get(agent_id, "#d9d9d4"))
+	return "[color=%s]%s[/color]" % [color, _escape_bbcode(agent_name)]
+
+
+func _tone(text: String, color: String) -> String:
+	return "[color=%s]%s[/color]" % [color, _escape_bbcode(text)]
+
+
 func _format_event(data: Dictionary) -> String:
 	var timestamp := str(data.get("timestamp", "--:--"))
 	var agent_id := str(data.get("agent_id", ""))
-	var agent_name := str(_agent_names.get(agent_id, agent_id.capitalize()))
 	var action := str(data.get("event", ""))
+	var name := _colored_name(agent_id)
 	if action == "said":
 		var content := str(data.get("content", ""))
 		var target_id := str(data.get("target_agent_id", ""))
 		if target_id.is_empty():
-			return "%s %s 說：%s" % [timestamp, agent_name, content]
-		var target_name := str(_agent_names.get(target_id, target_id.capitalize()))
-		return "%s %s 對 %s 說：%s" % [timestamp, agent_name, target_name, content]
+			return "%s%s%s" % [
+				_tone(timestamp + " ", _SAID_COLOR),
+				name,
+				_tone("：" + content, _SAID_COLOR),
+			]
+		return "%s%s%s%s%s" % [
+			_tone(timestamp + " ", _SAID_COLOR),
+			name,
+			_tone(" → ", _SAID_COLOR),
+			_colored_name(target_id),
+			_tone("：" + content, _SAID_COLOR),
+		]
 	if action == "thought":
-		return "%s %s 想：%s" % [timestamp, agent_name, str(data.get("content", ""))]
+		return "%s%s%s" % [
+			_tone(timestamp + " ", _THOUGHT_COLOR),
+			name,
+			_tone("（想）" + str(data.get("content", "")), _THOUGHT_COLOR),
+		]
 	var location := str(data.get("location", "")).capitalize()
-	return "%s %s %s %s" % [timestamp, agent_name, action, location]
+	var verb := "抵達" if action == "entered" else "前往"
+	return "[font_size=12]%s%s%s[/font_size]" % [
+		_tone(timestamp + " ", _MOVE_COLOR),
+		name,
+		_tone(" %s %s" % [verb, location], _MOVE_COLOR),
+	]
