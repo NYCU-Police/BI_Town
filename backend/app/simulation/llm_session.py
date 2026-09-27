@@ -43,7 +43,7 @@ from app.config import (
 from app.models.schemas import Agent, Position, WorldEvent
 from app.simulation.clock import advance_clock
 from app.simulation.fake_agent import move_agent
-from app.simulation.poi import POIS, home_for
+from app.simulation.poi import POIS, activities_for, home_for
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,9 @@ Decider = Callable[[list[dict[str, str]], dict[str, Any]], Awaitable[str]]
 SYSTEM_PROMPT = """\
 你是小鎮居民。只輸出一個 JSON 物件，不要加其他文字。
 想法（thought）與對話（say）必須使用繁體中文。
-action 只能是 move_to、stay、talk_to。
-move_to 的 target 只能是 home（家）、cafe（咖啡廳）、office（辦公室）、park（公園）。
+action 只能是 move_to、stay、talk_to、do。
+move_to 的 target 必須是使用者訊息裡列出的地點 id。
+do 的 target 必須是你目前地點可以做的活動 id。
 talk_to 的 target 必須是同地點、且沒有在移動的另一位居民 id。
 stay 的 target 必須是空字串。
 沒有要說的話時，say 必須是空字串。
@@ -85,8 +86,8 @@ class Sighting:
 
 
 class Decision(BaseModel):
-    action: Literal["move_to", "stay", "talk_to"] = Field(
-        description="move_to、stay 或 talk_to"
+    action: Literal["move_to", "stay", "talk_to", "do"] = Field(
+        description="move_to、stay、talk_to 或 do"
     )
     target: str = Field(default="", description="POI id、居民 id，或空字串")
     say: str = Field(default="", description="說出口的繁體中文；不說則空字串")
@@ -117,14 +118,20 @@ class Resident:
     )
     heard: list[DirectedLine] = field(default_factory=list)
     last_seen: dict[str, Sighting] = field(default_factory=dict)
+    activity_id: str = ""
+    activity_name: str = ""
+    activity_remaining: int = 0
 
     def remember(self, time_str: str, item: str) -> None:
         self.memories.append(f"[{time_str}] {item}")
 
     def as_agent(self) -> Agent:
-        state: Literal["idle", "walking"] = (
-            "walking" if self.state == "walking" else "idle"
-        )
+        if self.state == "walking":
+            state: Literal["idle", "walking", "doing"] = "walking"
+        elif self.state == "doing":
+            state = "doing"
+        else:
+            state = "idle"
         return Agent(
             id=self.id,
             name=self.name,
@@ -132,6 +139,7 @@ class Resident:
             location=self.location,
             target_location=self.target_location,
             state=state,
+            activity=self.activity_name if state == "doing" else "",
         )
 
 
@@ -214,23 +222,23 @@ def spawn_residents() -> list[Resident]:
         _at_home(
             "mina",
             "Mina",
-            "你重視安靜與工作進度，覺得沒目的的閒聊是打擾。"
-            "你習慣把一天排好，遲到會讓你焦慮。"
-            "你害怕被排除，但不會先承認。",
+            "你是辦公室的會計，負責小鎮的年度預算報告，星期五截止。"
+            "你做事有計畫，每天早上習慣到咖啡廳買咖啡。"
+            "你害怕被排除在外，但不會先承認。",
         ),
         _at_home(
             "alex",
             "Alex",
-            "你怕無聊，想拉別人去公園走走。"
-            "你對規矩沒耐性，覺得 Mina 太緊繃，但又忍不住邀她。"
-            "被追問真正的想法時，你會用玩笑帶過。",
+            "你是自由攝影師，想拍一組「小鎮人物」照片，需要說服別人當模特兒。"
+            "你怕無聊，愛拉人出門。"
+            "你對 Mina 有好感，但總用玩笑掩飾。",
         ),
         _at_home(
             "rin",
             "Rin",
-            "你剛搬來這個小鎮，話不多，但會記住別人說過的話，並在之後提起。"
-            "你不喜歡被敷衍。"
-            "Mina 的效率讓你覺得被推開，Alex 的熱絡讓你想看他什麼時候會收回去。",
+            "你剛搬來，在圖書館找到兼職。"
+            "你話不多，會記住別人說過的話，並在之後提起。"
+            "你不喜歡被敷衍，正在觀察誰值得信任。",
         ),
     ]
 
@@ -317,10 +325,42 @@ def target_enum(actor_id: str, residents: list[Resident]) -> list[str]:
     return choices
 
 
+def _actor(actor_id: str, residents: list[Resident]) -> Resident:
+    for resident in residents:
+        if resident.id == actor_id:
+            return resident
+    raise KeyError(actor_id)
+
+
 def decision_schema(actor_id: str, residents: list[Resident]) -> dict[str, Any]:
+    actor = _actor(actor_id, residents)
+    places = [poi_id for poi_id in POIS]
+    people = sorted(
+        resident.id for resident in residents if resident.id != actor_id
+    )
+    local = [activity.id for activity in activities_for(actor.location, actor.id)]
     schema = Decision.model_json_schema()
-    target = schema["properties"]["target"]
-    target["enum"] = target_enum(actor_id, residents)
+    actions = ["move_to", "stay", "talk_to"]
+    branches = [
+        {"action": "move_to", "targets": places},
+        {"action": "stay", "targets": [""]},
+        {"action": "talk_to", "targets": people},
+    ]
+    if local:
+        actions.append("do")
+        branches.append({"action": "do", "targets": local})
+    schema["properties"]["action"]["enum"] = actions
+    schema["properties"]["target"]["enum"] = [*places, *people, *local, ""]
+    schema["oneOf"] = [
+        {
+            "properties": {
+                "action": {"const": branch["action"]},
+                "target": {"enum": branch["targets"]},
+            },
+            "required": ["action", "target"],
+        }
+        for branch in branches
+    ]
     return schema
 
 
@@ -416,7 +456,7 @@ def people_here(actor: Resident, residents: list[Resident]) -> list[Resident]:
         other
         for other in residents
         if other.id != actor.id
-        and other.state == "idle"
+        and other.state != "walking"
         and other.location == actor.location
     ]
     others.sort(key=lambda other: other.id)
@@ -475,6 +515,16 @@ def situation_text(
     return "\n".join(f"- {line}" for line in lines)
 
 
+def _activity_prompt(actor: Resident) -> str:
+    available = activities_for(actor.location, actor.id)
+    if not available:
+        return "這裡沒有你可以做的活動。"
+    listed = "、".join(
+        f"{activity.name}（{activity.id}）" for activity in available
+    )
+    return f"這裡可以做：{listed}。"
+
+
 def build_messages(
     actor: Resident,
     time_str: str,
@@ -510,6 +560,7 @@ def build_messages(
         f"其他居民：{roster}\n"
         f"同地點、沒有在移動的人：{here}\n"
         f"地點：{places}\n"
+        f"{_activity_prompt(actor)}\n"
         f"上一次的想法：{actor.last_thought or '（還沒有）'}\n"
         f"你已經在 {here_label} 待了 {actor.minutes_here} 分鐘。\n"
         f"你最近說過的話：\n{spoken_text}\n"
@@ -534,12 +585,19 @@ def validate_decision(
         return echo
     if decision.action == "move_to" and decision.target not in POIS:
         return f"未知地點 {decision.target}"
+    if decision.action == "do":
+        allowed = {
+            activity.id for activity in activities_for(actor.location, actor.id)
+        }
+        if decision.target not in allowed:
+            return f"這裡不能做 {decision.target}"
+        return None
     if decision.action != "talk_to":
         return None
     if decision.target == actor.id or decision.target not in by_id:
         return f"無法對話的對象 {decision.target}"
     other = by_id[decision.target]
-    if other.location != actor.location or other.state != "idle":
+    if other.location != actor.location or other.state == "walking":
         return f"{other.name} 不在同地點或正在移動"
     return None
 
@@ -588,6 +646,7 @@ class LlmSession:
             applied.add(item.job.agent_id)
 
         arrivals = self._step(time_str, events, changed)
+        self._tick_activities()
         self._enqueue(time_str, reply_now, arrivals)
         for resident in self.residents:
             if resident.state != "idle":
@@ -664,6 +723,52 @@ class LlmSession:
             for other in people_here(actor, self.residents):
                 other.remember(time_str, f"聽到 {actor.name} 說：{say}")
 
+        if actor.state == "doing" and job.is_reply:
+            if decision.action == "talk_to" and decision.target in self.by_id:
+                other = self.by_id[decision.target]
+                actor.heard = [
+                    line for line in actor.heard if line.speaker_id != other.id
+                ]
+                if say:
+                    other.heard.append(
+                        DirectedLine(
+                            speaker_id=actor.id,
+                            text=say,
+                            minute=self.now_minutes,
+                        )
+                    )
+                    actor.remember(time_str, f"我對 {other.name} 說：{say}")
+                self.dialogue.finish_talk(actor.id, other.id)
+            else:
+                self.dialogue.abandon(actor.id, job.partner)
+            return events
+        if decision.action == "do":
+            chosen = next(
+                activity
+                for activity in activities_for(actor.location, actor.id)
+                if activity.id == decision.target
+            )
+            place = POIS[actor.location]
+            actor.state = "doing"
+            actor.activity_id = chosen.id
+            actor.activity_name = chosen.name
+            actor.activity_remaining = chosen.minutes
+            actor.idle_minutes = 0
+            actor.target_location = actor.location
+            actor.remember(time_str, f"在{place.name}{chosen.name}")
+            events.append(
+                WorldEvent(
+                    timestamp=time_str,
+                    agent_id=actor.id,
+                    event="activity",
+                    location=actor.location,
+                    content=chosen.name,
+                    duration_minutes=chosen.minutes,
+                )
+            )
+            if job.is_reply:
+                self.dialogue.abandon(actor.id, job.partner)
+            return events
         if decision.action == "move_to" and decision.target == actor.location:
             actor.state = "idle"
             actor.idle_minutes = 0
@@ -673,6 +778,9 @@ class LlmSession:
         if decision.action == "move_to":
             company = people_here(actor, self.residents)
             destination = decision.target
+            actor.activity_id = ""
+            actor.activity_name = ""
+            actor.activity_remaining = 0
             events.append(
                 WorldEvent(
                     timestamp=time_str,
@@ -777,6 +885,19 @@ class LlmSession:
         for other in company:
             other.remember(time_str, f"看到 {actor.name} 抵達 {actor.location}")
 
+    def _tick_activities(self) -> None:
+        for resident in self.residents:
+            if resident.state != "doing":
+                continue
+            resident.activity_remaining -= GAME_MINUTES_PER_TICK
+            if resident.activity_remaining > 0:
+                continue
+            resident.activity_remaining = 0
+            resident.activity_id = ""
+            resident.activity_name = ""
+            resident.state = "idle"
+            resident.idle_minutes = 0
+
     def _enqueue(
         self,
         time_str: str,
@@ -796,12 +917,14 @@ class LlmSession:
                 forced.add(resident.id)
         for resident_id, speaker_id in reply_now.items():
             resident = self.by_id.get(resident_id)
-            if resident is not None and resident.state == "idle":
+            if resident is not None and resident.state in {"idle", "doing"}:
                 forced.add(resident_id)
             elif resident is not None:
                 self.dialogue.drop_pair(resident_id, speaker_id)
         for resident in sorted(self.residents, key=lambda item: item.id):
             if resident.id not in forced:
+                continue
+            if resident.state == "doing" and resident.id not in reply_now:
                 continue
             self._request(
                 resident,
@@ -818,7 +941,9 @@ class LlmSession:
         is_reply: bool,
         partner: str | None,
     ) -> None:
-        if resident.state != "idle":
+        if resident.state == "walking":
+            return
+        if resident.state == "doing" and not is_reply:
             return
         if resident.id in self.waiting:
             if is_reply and partner:

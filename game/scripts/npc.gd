@@ -42,6 +42,7 @@ var _anim_time: float = 0.0
 
 @onready var _sprite: Sprite2D = $Sprite
 @onready var _label: Label = $Label
+@onready var _activity: Label = $Activity
 @onready var _speech: Node2D = $Speech
 @onready var _bubble: Panel = $Speech/Bubble
 @onready var _tail: Polygon2D = $Speech/Tail
@@ -72,6 +73,13 @@ func update_from_server(data: Dictionary, snap: bool = false) -> void:
 	var tint: Color = COLORS.get(_agent_id, Color(0.93, 0.93, 0.93))
 	_label.add_theme_color_override("font_color", tint)
 	_sprite.texture = SPRITES.get(_agent_id, SPRITES["mina"])
+	var task := str(data.get("activity", "")).strip_edges()
+	if task.is_empty():
+		_activity.visible = false
+		_activity.text = ""
+	else:
+		_activity.text = "%s中" % task
+		_activity.visible = true
 
 	_place(snap)
 

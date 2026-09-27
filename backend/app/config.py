@@ -56,3 +56,25 @@ DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_LLM_MODEL = "qwen3:14b"
 DEFAULT_LLM_TIMEOUT_SECONDS = 60.0
 LLM_TEMPERATURE = 0.8
+
+# How long a place activity keeps a resident from making a new decision.
+ACTIVITY_MINUTES = {
+    "order_coffee": 10,
+    "read_book": 25,
+    "chat_staff": 10,
+    "write_report": 40,
+    "sort_accounts": 25,
+    "meeting": 30,
+    "shelve_books": 20,
+    "borrow_book": 10,
+    "study": 40,
+    "shop": 10,
+    "stroll": 20,
+    "sit_bench": 15,
+    "take_photo": 20,
+    "read_board": 10,
+    "wander": 15,
+    "cook": 30,
+    "rest": 20,
+    "sleep": 60,
+}

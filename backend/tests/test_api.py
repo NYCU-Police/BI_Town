@@ -101,6 +101,7 @@ def test_agents() -> None:
             "location",
             "target_location",
             "state",
+            "activity",
         }
         assert set(agent["position"].keys()) == {"x", "y"}
         assert isinstance(agent["position"]["x"], (int, float))

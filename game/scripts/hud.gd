@@ -295,6 +295,14 @@ func _format_event(data: Dictionary) -> String:
 				_colored_name(target_id),
 			])
 		return header + "\n" + _tone("「%s」" % content, _SAID_COLOR)
+	if action == "activity":
+		var place := _place_label(str(data.get("location", "")))
+		var task := str(data.get("content", ""))
+		return "[font_size=12]%s[/font_size]" % _join_header([
+			_tone(timestamp, _MOVE_COLOR),
+			name,
+			_tone("在 %s %s" % [place, task], _MOVE_COLOR),
+		])
 	if action == "thought":
 		var header := _join_header([_tone(timestamp, _THOUGHT_COLOR), name])
 		header += _tone("（想）", _THOUGHT_COLOR)

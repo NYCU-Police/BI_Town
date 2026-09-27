@@ -105,12 +105,38 @@ def test_decision_schema_limits_target_to_other_ids() -> None:
     asyncio.run(service_pending(world.llm))
 
     pois = list(POIS)
-    assert schemas["alex"]["properties"]["target"]["enum"] == [*pois, "mina", "rin", ""]
+    home_activities = ["cook", "rest", "sleep"]
+    assert schemas["alex"]["properties"]["target"]["enum"] == [
+        *pois,
+        "mina",
+        "rin",
+        *home_activities,
+        "",
+    ]
     assert "alex" not in schemas["alex"]["properties"]["target"]["enum"]
-    assert schemas["mina"]["properties"]["target"]["enum"] == [*pois, "alex", "rin", ""]
+    assert schemas["mina"]["properties"]["target"]["enum"] == [
+        *pois,
+        "alex",
+        "rin",
+        *home_activities,
+        "",
+    ]
     assert "mina" not in schemas["mina"]["properties"]["target"]["enum"]
-    assert schemas["rin"]["properties"]["target"]["enum"] == [*pois, "alex", "mina", ""]
+    assert schemas["rin"]["properties"]["target"]["enum"] == [
+        *pois,
+        "alex",
+        "mina",
+        *home_activities,
+        "",
+    ]
     assert "rin" not in schemas["rin"]["properties"]["target"]["enum"]
+    for actor_id in ("mina", "alex", "rin"):
+        do_branch = next(
+            branch
+            for branch in schemas[actor_id]["oneOf"]
+            if branch["properties"]["action"]["const"] == "do"
+        )
+        assert do_branch["properties"]["target"]["enum"] == home_activities
 
 
 def test_resident_name_target_maps_to_id() -> None:
