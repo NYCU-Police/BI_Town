@@ -79,6 +79,42 @@ curl -sI -H 'If-None-Match: "<etag>"' https://bitown.aicanhelp.app/index.wasm
 
 公開網址檢查（`/api/health` 與 `/build_info.json`）是在部署主機上執行 `curl https://bitown.aicanhelp.app/...`。請求仍經過 Cloudflare 邊緣與 Tunnel，SHA 必須等於觸發這次部署的 CI commit（`workflow_run.head_sha`）。不從 GitHub runner 直接打公開網址：runner 的資料中心 IP 會被 Cloudflare 當成機器人回 403。這不是放寬檢查，也不要為了 runner 去改 Cloudflare 規則。本機 `127.0.0.1` 檢查另外保留。
 
+## 啟用 LLM 居民
+
+預設是 `BRAIN_MODE=rules`。正式站維持 Mina、Alex 的行程，直到主機上的 `deploy/.env` 改成 `llm` 並重新部署。這個檔不進 git。
+
+在 `/srv/bi_town/deploy/.env` 設定：
+
+```bash
+BRAIN_MODE=llm
+OLLAMA_URL=http://host.docker.internal:11434
+LLM_MODEL=qwen3:14b
+LLM_TIMEOUT=60
+```
+
+Ollama 跑在部署主機上，不在 compose 裡。backend 容器用 `host.docker.internal` 連主機的 11434（compose 把這個名字指到 `host-gateway`）。Ollama 若只聽 `127.0.0.1`，容器連不到；要讓它聽 Docker 橋能到達的位址（例如 `OLLAMA_HOST=0.0.0.0:11434`），並且不要把 11434 暴露到公網。
+
+改 `.env` 不會影響已經在跑的容器。重新部署後才會讀到新值。下一次成功的 Deploy staging 會帶上這份 `.env`。若要立刻切換、不等下一次合併：
+
+```bash
+cd /srv/bi_town
+export GIT_COMMIT="$(git rev-parse HEAD)"
+export DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cd deploy
+docker compose --profile tunnel up -d --build
+```
+
+確認模式：
+
+```bash
+curl -fsS http://127.0.0.1:8100/api/health
+curl -fsS https://bitown.aicanhelp.app/api/health
+```
+
+`brain_mode` 應為 `llm`。每次重建容器，世界都會回到 Day 1 08:00。
+
+退回：把 `BRAIN_MODE` 改回 `rules`（或刪掉該行；compose 預設就是 `rules`），再用上面的方式重新部署。之後 `/api/health` 的 `brain_mode` 應為 `rules`。
+
 ## 回滾
 
 標準做法：在 `main` 上對造成問題的合併執行 `git revert`，再開 PR 進 `main`。PR 合併後，CI 與 Deploy staging 會把線上環境建回 revert 之後的樹。主機上的 `main` 與 `origin/main` 保持一致。

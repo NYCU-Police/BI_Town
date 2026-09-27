@@ -19,6 +19,13 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-staging}
       # Set when the container is created, not baked into the image.
       DEPLOYED_AT: ${DEPLOYED_AT:-unknown}
+      # rules is the public default. llm calls Ollama on the deploy host.
+      BRAIN_MODE: ${BRAIN_MODE:-rules}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:14b}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ../game/build/web:/app/web:ro,z
     depends_on:

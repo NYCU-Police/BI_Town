@@ -16,6 +16,7 @@ async def get_health(response: Response) -> HealthResponse:
         version=VERSION,
         git_commit=deployment_value("GIT_COMMIT"),
         deployed_at=deployment_value("DEPLOYED_AT"),
+        brain_mode=state.world.brain_mode,
     )
 
 

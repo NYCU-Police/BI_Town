@@ -5,11 +5,11 @@
 ## 1. 專案是什麼
 
 - 名稱：BI_Town（Behavioral Intelligence Town）。版本常數在 `backend/app/config.py` 的 `VERSION = "0.1.0"`。
-- 類型：AI-native social simulation。預設大腦是行程表，不是 LLM。`BRAIN_MODE=llm` 才改走本機模型，而且正式站沒有開這個開關。
+- 類型：AI-native social simulation。預設大腦是行程表，不是 LLM。`BRAIN_MODE=llm` 才改走本機模型。正式站預設仍是 `rules`；要開見 `docs/DEPLOY.md`。
 - 架構：server-authoritative。World state 的唯一來源是 FastAPI backend。Godot client 只渲染 server 送來的狀態，不自行推進時鐘、不決定 NPC 去向。
 - World 存在 process 記憶體（`backend/app/state.py` 的 `World` singleton）。重啟即重置。Postgres 與 Redis 只在 Docker Compose 裡待命，backend 程式尚未連線。
 - 開局：Day 1、08:00。預設兩個 rule-based agent：Mina、Alex。`BRAIN_MODE=llm` 改為 Mina、Alex、Rin，三人都從 home 出發。地點：home、cafe、office、park。
-- 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`（含 `version`、`git_commit`、`deployed_at`）。部署步驟與回滾見 `docs/DEPLOY.md`。
+- 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`（含 `version`、`git_commit`、`deployed_at`、`brain_mode`）。部署步驟與回滾見 `docs/DEPLOY.md`。
 
 ## 2. 目前架構
 
@@ -221,7 +221,7 @@ docker compose --profile tunnel up -d --build
 
 先前三項畫面缺陷已修：全員 idle 時每個 tick 仍廣播 `agent_update`（時鐘繼續走）、HUD 把 day 轉成整數（不再顯示 `1.0`）、同座標的 NPC 只在 client 上錯開名字與對話泡泡，伺服器座標不變。
 
-預設大腦仍是 `rules`（Mina、Alex 的行程）。`BRAIN_MODE=llm` 是選用開關，居民換成 Mina、Alex、Rin，決策打本機 Ollama，且不阻塞 `tick()`。這不是 v0.2 roadmap 的第 4 步；那一步還沒做。主機上怎麼開這個開關見 `backend/README.md`。不要改 Compose 或 8100 的正式部署來開它。
+預設大腦仍是 `rules`（Mina、Alex 的行程）。`BRAIN_MODE=llm` 是選用開關，居民換成 Mina、Alex、Rin，決策打部署主機上的 Ollama，且不阻塞 `tick()`。這不是 v0.2 roadmap 的第 4 步；那一步還沒做。正式站在主機 `deploy/.env` 設定後重新部署才會切換，見 `docs/DEPLOY.md`。未設定時 compose 仍是 `rules`。
 
 ## 8. v0.2 roadmap
 
