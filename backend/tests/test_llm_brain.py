@@ -489,3 +489,86 @@ def test_llm_think_flag_is_sent_to_ollama(monkeypatch) -> None:
     asyncio.run(ask())
 
     assert [body["think"] for body in captured] == [False, True, False]
+
+
+def test_departure_sighting_is_replaced_when_met_again() -> None:
+    from app.models.schemas import Position
+    from app.simulation.poi import POIS
+
+    prompts: list[str] = []
+    leave = {"ready": False}
+    left = "你最後看到 Mina 從 park（公園）離開，往 office（辦公室）去。"
+    met = "你最後看到 Mina 是在 office（辦公室）。"
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        actor = _actor_id(messages)
+        if actor == "alex":
+            prompts.append(_user_text(messages))
+        if actor == "mina" and leave["ready"]:
+            leave["ready"] = False
+            return _decision("move_to", "office", say="", thought="換去辦公室")
+        return SILENT
+
+    world = World(brain_mode="llm", decider=fake)
+    assert world.llm is not None
+    world.tick()
+    _drain(world)
+    world.tick()
+
+    park = POIS["park"]
+    for agent_id in ("mina", "alex"):
+        resident = world.llm.by_id[agent_id]
+        resident.location = "park"
+        resident.target_location = "park"
+        resident.state = "idle"
+        resident.position = Position(x=park.x, y=park.y)
+    leave["ready"] = True
+    world.llm.waiting.discard("mina")
+    world.llm._request(
+        world.llm.by_id["mina"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    world.tick()
+
+    world.llm.waiting.discard("alex")
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    assert left in prompts[-1]
+
+    office = POIS["office"]
+    alex = world.llm.by_id["alex"]
+    alex.location = "office"
+    alex.target_location = "office"
+    alex.state = "idle"
+    alex.position = Position(x=office.x, y=office.y)
+    arrived = False
+    for _ in range(30):
+        world.tick()
+        _drain(world)
+        mina = world.llm.by_id["mina"]
+        if mina.state == "idle" and mina.location == "office":
+            arrived = True
+            break
+    assert arrived
+
+    world.llm.waiting.discard("alex")
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    assert met in prompts[-1]
+    assert left not in prompts[-1]
+    sight = alex.last_seen["mina"]
+    assert sight.place == "office"
+    assert not sight.destination

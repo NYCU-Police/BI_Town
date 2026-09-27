@@ -79,6 +79,12 @@ class DirectedLine:
     minute: int
 
 
+@dataclass
+class Sighting:
+    place: str
+    destination: str = ""
+
+
 class Decision(BaseModel):
     action: Literal["move_to", "stay", "talk_to"] = Field(
         description="move_to、stay 或 talk_to"
@@ -110,7 +116,7 @@ class Resident:
         default_factory=lambda: deque(maxlen=LLM_RECENT_THOUGHT_LIMIT)
     )
     heard: list[DirectedLine] = field(default_factory=list)
-    last_seen: dict[str, str] = field(default_factory=dict)
+    last_seen: dict[str, Sighting] = field(default_factory=dict)
 
     def remember(self, time_str: str, item: str) -> None:
         self.memories.append(f"[{time_str}] {item}")
@@ -421,13 +427,19 @@ def situation_text(
     others.sort(key=lambda resident: resident.id)
     for other in others:
         if other.id in company_ids:
-            seen = actor.location
-        else:
-            seen = actor.last_seen.get(other.id)
-        if seen:
-            lines.append(f"你最後看到 {other.name} 是在 {place_name(seen)}。")
-        else:
+            lines.append(f"你最後看到 {other.name} 是在 {place_name(actor.location)}。")
+            continue
+        seen = actor.last_seen.get(other.id)
+        if seen is None:
             lines.append(f"你還沒看到 {other.name}。")
+        elif seen.destination:
+            origin = place_name(seen.place)
+            dest = place_name(seen.destination)
+            lines.append(
+                f"你最後看到 {other.name} 從 {origin}離開，往 {dest}去。"
+            )
+        else:
+            lines.append(f"你最後看到 {other.name} 是在 {place_name(seen.place)}。")
     return "\n".join(f"- {line}" for line in lines)
 
 
@@ -640,6 +652,7 @@ class LlmSession:
             actor.idle_minutes = 0
             actor.remember(time_str, f"決定前往 {destination}")
             for other in company:
+                other.last_seen[actor.id] = Sighting(actor.location, destination)
                 other.remember(
                     time_str, f"看到 {actor.name} 離開，往 {destination} 去"
                 )
@@ -715,8 +728,8 @@ class LlmSession:
 
     def _observe(self, actor: Resident) -> None:
         for other in people_here(actor, self.residents):
-            actor.last_seen[other.id] = actor.location
-            other.last_seen[actor.id] = actor.location
+            actor.last_seen[other.id] = Sighting(actor.location)
+            other.last_seen[actor.id] = Sighting(actor.location)
 
     def _note_arrival(self, actor: Resident, time_str: str) -> None:
         self._observe(actor)
