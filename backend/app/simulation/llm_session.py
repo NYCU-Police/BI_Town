@@ -43,7 +43,7 @@ from app.config import (
 from app.models.schemas import Agent, Position, WorldEvent
 from app.simulation.clock import advance_clock
 from app.simulation.fake_agent import move_agent
-from app.simulation.poi import POIS
+from app.simulation.poi import POIS, home_for
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +67,6 @@ thought 只寫一句內心話。
 這個世界沒有手機或訊息，只能當面說話。
 """
 
-PLACE_LABELS = {
-    "home": "家",
-    "cafe": "咖啡廳",
-    "office": "辦公室",
-    "park": "公園",
-}
 REPEAT_SAY = "你已經說過類似的話，請說新的內容"
 REPEAT_THOUGHT = "請換個角度想想現在的處境"
 
@@ -107,7 +101,7 @@ class Resident:
     location: str
     position: Position
     state: str = "idle"
-    target_location: str = "home"
+    target_location: str = ""
     idle_minutes: int = 0
     minutes_here: int = 0
     stay_until_minute: int | None = None
@@ -204,14 +198,14 @@ class DialogueTracker:
 
 
 def _at_home(resident_id: str, name: str, persona: str) -> Resident:
-    home = POIS["home"]
+    home = home_for(resident_id)
     return Resident(
         id=resident_id,
         name=name,
         persona=persona,
-        location="home",
-        position=Position(x=home.x, y=home.y),
-        target_location="home",
+        location=home.id,
+        position=home.position,
+        target_location=home.id,
     )
 
 
@@ -353,21 +347,21 @@ def coerce_target(
 
 
 def place_name(poi_id: str) -> str:
-    label = PLACE_LABELS.get(poi_id)
-    if label is None:
+    poi = POIS.get(poi_id)
+    if poi is None:
         return poi_id
-    return f"{poi_id}（{label}）"
+    return f"{poi_id}（{poi.name}）"
 
 
 def label_places(text: str) -> str:
     labeled = text
-    for poi_id, label in PLACE_LABELS.items():
-        token = f"{poi_id}（{label}）"
+    for poi_id, poi in POIS.items():
+        token = f"{poi_id}（{poi.name}）"
         labeled = labeled.replace(token, f"\x00{poi_id}\x00")
-    for poi_id in PLACE_LABELS:
+    for poi_id in sorted(POIS, key=len, reverse=True):
         labeled = labeled.replace(poi_id, place_name(poi_id))
-    for poi_id, label in PLACE_LABELS.items():
-        labeled = labeled.replace(f"\x00{poi_id}\x00", f"{poi_id}（{label}）")
+    for poi_id, poi in POIS.items():
+        labeled = labeled.replace(f"\x00{poi_id}\x00", f"{poi_id}（{poi.name}）")
     return labeled
 
 

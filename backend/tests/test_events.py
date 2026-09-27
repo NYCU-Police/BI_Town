@@ -13,7 +13,7 @@ def test_leaving_home_creates_left_event() -> None:
         timestamp="08:00",
         agent_id="mina",
         event="left",
-        location="home",
+        location="mina_home",
     )
 
 

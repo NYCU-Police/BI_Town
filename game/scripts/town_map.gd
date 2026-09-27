@@ -1,55 +1,35 @@
 extends TileMapLayer
 
-## Visual ground only. Agent positions stay on the server.
-## POI nodes are the coordinate source; world.gd checks them against
-## backend/app/simulation/poi.py. Paths are the straight segments the
-## v0.1 schedules actually walk (fake_agent.py moves in a straight line).
+## Visual only. Place ids and coordinates live in world.gd and must match
+## backend/app/simulation/poi.py. Tiles are Kenney RPG Urban Pack, 16×16
+## with 1px spacing.
 
 const TILE := 16
-const MAP_SIZE := Vector2i(80, 45)
-const BUILDING_TILES := 4
-## Feet follow the POI centerline. Tiles within this distance stay road,
-## which used to keep a 20px marker on the path. Sprites hang wider than
-## that; standing in front of a door is a display offset, not a new path.
-const NPC_COVER := 18.0
-const PATH_SAMPLE := 4.0
+const MAP_W := 60
+const MAP_H := 40
 
-const A_GRASS := Vector2i(0, 0)
-const A_GRASS_B := Vector2i(1, 0)
-const A_FLOWER := Vector2i(2, 0)
-const A_SHADOW := Vector2i(3, 0)
-const A_ROAD := Vector2i(4, 0)
-const A_TREE := Vector2i(5, 0)
-const A_HOME_CAP := Vector2i(6, 0)
-const A_HOME_EAVE := Vector2i(7, 0)
-const A_HOME_WALL := Vector2i(8, 0)
-const A_HOME_DOOR := Vector2i(9, 0)
-const A_CAFE_CAP := Vector2i(10, 0)
-const A_CAFE_EAVE := Vector2i(11, 0)
-const A_CAFE_WALL := Vector2i(12, 0)
-const A_CAFE_DOOR := Vector2i(13, 0)
-const A_OFFICE_CAP := Vector2i(14, 0)
-const A_OFFICE_EAVE := Vector2i(15, 0)
-const A_OFFICE_WALL := Vector2i(16, 0)
-const A_OFFICE_DOOR := Vector2i(17, 0)
-const A_PARK_CAP := Vector2i(18, 0)
-const A_PARK_EAVE := Vector2i(19, 0)
-const A_PARK_POST_L := Vector2i(20, 0)
-const A_PARK_POST_R := Vector2i(21, 0)
-const A_PARK_FLOOR := Vector2i(22, 0)
-const A_PARK_GATE := Vector2i(23, 0)
-const ATLAS_COUNT := 24
-
-## Node-name pairs. Home–cafe, cafe–office, office–park, park–home.
-const WALKED_EDGES: Array = [
-	["Home", "Cafe"],
-	["Cafe", "Office"],
-	["Office", "Park"],
-	["Park", "Home"],
-]
+const GRASS := Vector2i(1, 1)
+const GRASS_B := Vector2i(5, 1)
+const ROAD := Vector2i(9, 1)
+const WALK := Vector2i(1, 4)
+const PLAZA := Vector2i(5, 4)
+const TREE := Vector2i(21, 10)
+const BENCH := Vector2i(1, 10)
+const LAMP := Vector2i(0, 6)
+const FLOWER_A := Vector2i(6, 10)
+const FLOWER_B := Vector2i(7, 10)
+const WINDOW := Vector2i(11, 10)
+const DOOR_HOME := Vector2i(13, 11)
+const DOOR_CAFE := Vector2i(14, 10)
+const DOOR_GLASS := Vector2i(15, 10)
+const AWNING := Vector2i(6, 8)
+const GLASS := Vector2i(9, 14)
+const SIGN := Vector2i(11, 12)
 
 var _source_id := 0
 var _objects: TileMapLayer
+var _ground: Dictionary = {}
+var _blocked: Dictionary = {}
 
 
 func _ready() -> void:
@@ -62,429 +42,191 @@ func _ready() -> void:
 
 
 func _rebuild() -> void:
-	var image := _build_atlas()
-	var texture := ImageTexture.create_from_image(image)
+	var texture: Texture2D = load("res://assets/town/tilemap.png")
 	var atlas := TileSetAtlasSource.new()
 	atlas.texture = texture
 	atlas.texture_region_size = Vector2i(TILE, TILE)
-	for i in ATLAS_COUNT:
-		atlas.create_tile(Vector2i(i, 0))
+	atlas.separation = Vector2i(1, 1)
+	var used: Array[Vector2i] = [
+		GRASS, GRASS_B, ROAD, WALK, PLAZA, TREE, BENCH, LAMP,
+		FLOWER_A, FLOWER_B, WINDOW, DOOR_HOME, DOOR_CAFE, DOOR_GLASS,
+		AWNING, GLASS, SIGN,
+		Vector2i(16, 0), Vector2i(17, 0), Vector2i(20, 0),
+		Vector2i(16, 2), Vector2i(17, 2), Vector2i(20, 2),
+		Vector2i(16, 4), Vector2i(17, 4), Vector2i(20, 4),
+		Vector2i(16, 6), Vector2i(17, 6), Vector2i(20, 6),
+		Vector2i(12, 0), Vector2i(13, 0), Vector2i(15, 0),
+		Vector2i(12, 1), Vector2i(13, 1), Vector2i(15, 1),
+		Vector2i(8, 13), Vector2i(8, 15),
+	]
+	for coord in used:
+		atlas.create_tile(coord)
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(TILE, TILE)
 	tileset.uv_clipping = true
 	_source_id = tileset.add_source(atlas)
-	clear()
 	tile_set = tileset
+	clear()
 	if _objects != null:
-		_objects.clear()
 		_objects.tile_set = tileset
-	_paint()
+		_objects.clear()
+	_ground.clear()
+	_blocked.clear()
+	_paint_base()
+	_paint_roads()
+	_paint_buildings()
+	_paint_plaza_and_park()
+	_paint_props()
+	for cell in _ground:
+		set_cell(cell, _source_id, _ground[cell])
 
 
-func _paint() -> void:
-	_paint_grass()
-	var pois := _read_pois()
-	if pois.is_empty():
-		return
-	for edge in WALKED_EDGES:
-		_paint_road(pois[edge[0]], pois[edge[1]])
-	_paint_house(pois["Home"], A_HOME_CAP, A_HOME_EAVE, A_HOME_WALL, A_HOME_DOOR, "Home")
-	_paint_house(pois["Cafe"], A_CAFE_CAP, A_CAFE_EAVE, A_CAFE_WALL, A_CAFE_DOOR, "Cafe")
-	_paint_house(pois["Office"], A_OFFICE_CAP, A_OFFICE_EAVE, A_OFFICE_WALL, A_OFFICE_DOOR, "Office")
-	_paint_pavilion(pois["Park"])
-	_paint_trees(pois["Park"])
-	for edge in WALKED_EDGES:
-		_warn_if_npc_would_leave_path(pois[edge[0]], pois[edge[1]])
+func _paint_base() -> void:
+	for y in MAP_H:
+		for x in MAP_W:
+			var cell := Vector2i(x, y)
+			_ground[cell] = GRASS_B if (x + y) % 2 == 0 else GRASS
 
 
-func _read_pois() -> Dictionary:
-	var pois := {}
-	for node_name in ["Home", "Cafe", "Office", "Park"]:
-		var node := get_node_or_null("../POIs/%s" % node_name) as Node2D
-		if node == null:
-			push_error("Town map missing POIs/%s" % node_name)
-			return {}
-		pois[node_name] = node.position
-	return pois
+func _fill_rect(origin: Vector2i, size: Vector2i, tile: Vector2i) -> void:
+	for y in size.y:
+		for x in size.x:
+			_ground[origin + Vector2i(x, y)] = tile
 
 
-func _paint_grass() -> void:
-	for y in MAP_SIZE.y:
-		for x in MAP_SIZE.x:
-			set_cell(Vector2i(x, y), _source_id, _grass_atlas(x, y))
+func _paint_roads() -> void:
+	# North street under the homes, south street in front of the lower doors,
+	# and verticals on each door column so the network reaches every place.
+	_fill_rect(Vector2i(1, 6), Vector2i(56, 1), WALK)
+	_fill_rect(Vector2i(1, 7), Vector2i(56, 2), ROAD)
+	_fill_rect(Vector2i(1, 9), Vector2i(56, 1), WALK)
+	_fill_rect(Vector2i(1, 18), Vector2i(56, 2), ROAD)
+	_fill_rect(Vector2i(1, 20), Vector2i(56, 1), WALK)
+	for column in [4, 14, 24, 36, 50]:
+		for y in range(7, 20):
+			_ground[Vector2i(column, y)] = ROAD
+			if column > 0:
+				var left := Vector2i(column - 1, y)
+				if _ground.get(left) != ROAD:
+					_ground[left] = WALK
+		# Park path continues south from the store column.
+		if column == 50:
+			for y in range(20, 31):
+				_ground[Vector2i(column, y)] = ROAD
 
 
-func _grass_atlas(x: int, y: int) -> Vector2i:
-	var n := (x * 13 + y * 29) % 96
-	if n == 0:
-		return A_FLOWER
-	if (x * 13 + y * 17) % 7 == 0:
-		return A_GRASS_B
-	return A_GRASS
+func _row(left: Vector2i, mid: Vector2i, right: Vector2i, width: int) -> Array:
+	var cells: Array = []
+	for x in width:
+		if x == 0:
+			cells.append(left)
+		elif x == width - 1:
+			cells.append(right)
+		else:
+			cells.append(mid)
+	return cells
 
 
-func _paint_road(a: Vector2, b: Vector2) -> void:
-	var length := a.distance_to(b)
-	var steps := maxi(1, int(ceil(length / PATH_SAMPLE)))
-	for i in steps + 1:
-		var point: Vector2 = a.lerp(b, float(i) / float(steps))
-		_stamp_path(point)
+func _paint_buildings() -> void:
+	var red_roof := _row(Vector2i(16, 0), Vector2i(17, 0), Vector2i(20, 0), 6)
+	var red_wall := _row(Vector2i(16, 2), Vector2i(17, 2), Vector2i(20, 2), 6)
+	var red_windows := red_wall.duplicate()
+	red_windows[2] = WINDOW
+	red_windows[4] = WINDOW
+	var red_door := red_wall.duplicate()
+	red_door[2] = DOOR_HOME
+	var orange_roof := _row(Vector2i(16, 4), Vector2i(17, 4), Vector2i(20, 4), 6)
+	var orange_wall := _row(Vector2i(16, 6), Vector2i(17, 6), Vector2i(20, 6), 6)
+	var orange_windows := orange_wall.duplicate()
+	orange_windows[1] = WINDOW
+	orange_windows[4] = WINDOW
+	var cafe_door := orange_wall.duplicate()
+	cafe_door[2] = DOOR_CAFE
+	var store_door := orange_wall.duplicate()
+	store_door[2] = DOOR_GLASS
+	store_door[1] = GLASS
+	store_door[3] = GLASS
+	var grey_roof := _row(Vector2i(12, 0), Vector2i(13, 0), Vector2i(15, 0), 6)
+	var grey_wall := _row(Vector2i(12, 1), Vector2i(13, 1), Vector2i(15, 1), 6)
+	var office_windows := grey_wall.duplicate()
+	office_windows[4] = WINDOW
+	var office_door := grey_wall.duplicate()
+	office_door[2] = DOOR_GLASS
+	var library_windows := grey_wall.duplicate()
+	library_windows[1] = WINDOW
+	library_windows[3] = WINDOW
+	library_windows[4] = WINDOW
+	var library_door := grey_wall.duplicate()
+	library_door[2] = DOOR_CAFE
+
+	# North row: door on the south edge, resident stands on the sidewalk below.
+	_stamp(Vector2i(2, 2), [red_roof, red_wall, red_windows, red_door])
+	_stamp(Vector2i(12, 2), [red_roof, red_wall, red_windows, red_door])
+	_stamp(Vector2i(22, 2), [red_roof, red_wall, red_windows, red_door])
+	_stamp(Vector2i(34, 2), [orange_roof, orange_wall, orange_windows, cafe_door])
+	_prop(Vector2i(36, 4), AWNING)
+	_stamp(Vector2i(48, 2), [orange_roof, orange_windows, orange_wall, store_door])
+	_prop(Vector2i(50, 4), AWNING)
+	# South row: door on the north edge, so the walk down the street stops
+	# on the sidewalk and does not cross the building.
+	_stamp(Vector2i(2, 21), [office_door, office_windows, grey_wall, grey_roof])
+	_stamp(Vector2i(12, 21), [library_door, library_windows, grey_wall, grey_roof])
 
 
-func _stamp_path(point: Vector2) -> void:
-	var c0 := maxi(0, int(floor((point.x - NPC_COVER) / float(TILE))))
-	var c1 := mini(MAP_SIZE.x - 1, int(floor((point.x + NPC_COVER) / float(TILE))))
-	var r0 := maxi(0, int(floor((point.y - NPC_COVER) / float(TILE))))
-	var r1 := mini(MAP_SIZE.y - 1, int(floor((point.y + NPC_COVER) / float(TILE))))
-	for r in range(r0, r1 + 1):
-		for c in range(c0, c1 + 1):
-			if _dist_to_cell(point, c, r) <= NPC_COVER:
-				set_cell(Vector2i(c, r), _source_id, A_ROAD)
+func _stamp(origin: Vector2i, rows: Array) -> void:
+	for y in rows.size():
+		var row: Array = rows[y]
+		for x in row.size():
+			var cell := origin + Vector2i(x, y)
+			_prop(cell, row[x])
+			_blocked[cell] = true
 
 
-func _dist_to_cell(point: Vector2, c: int, r: int) -> float:
-	var min_x := float(c * TILE)
-	var min_y := float(r * TILE)
-	var closest := Vector2(
-		clampf(point.x, min_x, min_x + float(TILE)),
-		clampf(point.y, min_y, min_y + float(TILE)),
-	)
-	return point.distance_to(closest)
-
-
-func _paint_house(
-	center: Vector2,
-	cap: Vector2i,
-	eave: Vector2i,
-	wall: Vector2i,
-	door: Vector2i,
-	label: String,
-) -> void:
-	var origin := _building_origin(center)
-	_assert_covers(origin, center, label)
-	for ly in BUILDING_TILES:
-		for lx in BUILDING_TILES:
-			var atlas := wall
-			if ly == 0:
-				atlas = cap
-			elif ly == 1:
-				atlas = eave
-			elif ly == BUILDING_TILES - 1 and (lx == 1 or lx == 2):
-				atlas = door
-			_set_tile(origin + Vector2i(lx, ly), atlas)
-	_paint_shadow(origin)
-
-
-func _paint_pavilion(center: Vector2) -> void:
-	var origin := _building_origin(center)
-	_assert_covers(origin, center, "Park")
-	for ly in BUILDING_TILES:
-		for lx in BUILDING_TILES:
-			var atlas := A_PARK_FLOOR
-			if ly == 0:
-				atlas = A_PARK_CAP
-			elif ly == 1:
-				atlas = A_PARK_EAVE
-			elif lx == 0:
-				atlas = A_PARK_POST_L
-			elif lx == BUILDING_TILES - 1:
-				atlas = A_PARK_POST_R
-			elif ly == BUILDING_TILES - 1 and (lx == 1 or lx == 2):
-				atlas = A_PARK_GATE
-			_set_tile(origin + Vector2i(lx, ly), atlas)
-	_paint_shadow(origin)
-
-
-func _building_origin(center: Vector2) -> Vector2i:
-	var half := int(BUILDING_TILES / 2)
-	return Vector2i(
-		int(round(center.x / float(TILE))) - half,
-		int(round(center.y / float(TILE))) - half,
-	)
-
-
-func _assert_covers(origin: Vector2i, center: Vector2, label: String) -> void:
-	var rect := Rect2(
-		origin.x * TILE,
-		origin.y * TILE,
-		BUILDING_TILES * TILE,
-		BUILDING_TILES * TILE,
-	)
-	if not rect.has_point(center):
-		push_error("%s building %s does not cover POI %s" % [label, rect, center])
-
-
-func _paint_shadow(origin: Vector2i) -> void:
-	var row := origin.y + BUILDING_TILES
-	for lx in BUILDING_TILES:
-		var cell := Vector2i(origin.x + lx, row)
-		if _in_map(cell) and _is_open_ground(cell):
-			set_cell(cell, _source_id, A_SHADOW)
-
-
-func _paint_trees(park: Vector2) -> void:
-	var origin := _building_origin(park)
-	for offset in _park_tree_offsets():
-		_try_tree(origin + offset)
-	for y in range(1, MAP_SIZE.y - 1):
-		for x in range(1, MAP_SIZE.x - 1):
-			if (x * 19 + y * 37) % 67 != 0:
-				continue
-			_try_tree(Vector2i(x, y))
-
-
-func _park_tree_offsets() -> Array[Vector2i]:
-	return [
-		Vector2i(-3, 0),
-		Vector2i(-3, 2),
-		Vector2i(-2, 4),
-		Vector2i(1, 5),
-		Vector2i(3, 5),
-		Vector2i(5, 3),
-		Vector2i(5, 1),
-		Vector2i(4, -2),
-		Vector2i(6, 0),
-		Vector2i(-4, 3),
-		Vector2i(2, 6),
-		Vector2i(-1, 6),
-	]
-
-
-func _try_tree(cell: Vector2i) -> void:
-	if not _in_map(cell) or not _is_open_ground(cell):
-		return
-	for oy in range(-1, 2):
-		for ox in range(-1, 2):
-			var neighbor := cell + Vector2i(ox, oy)
-			if not _in_map(neighbor) or not _is_open_ground(neighbor):
-				return
-	_set_tile(cell, A_TREE)
-
-
-func _warn_if_npc_would_leave_path(a: Vector2, b: Vector2) -> void:
-	var length := a.distance_to(b)
-	if length < 1.0:
-		return
-	var steps := int(ceil(length / 4.0))
-	var offsets: Array[Vector2] = [
-		Vector2(10, 10),
-		Vector2(10, -10),
-		Vector2(-10, 10),
-		Vector2(-10, -10),
-		Vector2(10, 0),
-		Vector2(-10, 0),
-		Vector2(0, 10),
-		Vector2(0, -10),
-	]
-	for i in steps + 1:
-		var point: Vector2 = a.lerp(b, float(i) / float(steps))
-		for offset in offsets:
-			if not _tile_supports_npc(point + offset):
-				push_error("NPC body leaves the path at %s on %s -> %s" % [point + offset, a, b])
-				return
-
-
-func _tile_supports_npc(point: Vector2) -> bool:
-	if point.x < 0.0 or point.y < 0.0:
-		return false
-	var cell := Vector2i(int(floor(point.x / float(TILE))), int(floor(point.y / float(TILE))))
-	if not _in_map(cell):
-		return false
-	var prop := _object_atlas(cell)
-	if prop == A_TREE:
-		return false
-	if prop.x >= 0:
-		return true
-	if _is_open_ground(cell):
-		return false
-	var atlas := get_cell_atlas_coords(cell)
-	return atlas != A_TREE and atlas != A_SHADOW
-
-
-func _is_open_ground(cell: Vector2i) -> bool:
-	var atlas := get_cell_atlas_coords(cell)
-	return atlas == A_GRASS or atlas == A_GRASS_B or atlas == A_FLOWER
-
-
-func _in_map(cell: Vector2i) -> bool:
-	return cell.x >= 0 and cell.y >= 0 and cell.x < MAP_SIZE.x and cell.y < MAP_SIZE.y
-
-
-func _object_atlas(cell: Vector2i) -> Vector2i:
+func _prop(cell: Vector2i, tile: Vector2i) -> void:
 	if _objects == null:
-		return Vector2i(-1, -1)
-	return _objects.get_cell_atlas_coords(cell)
-
-
-func _set_tile(cell: Vector2i, atlas: Vector2i) -> void:
-	if not _in_map(cell):
 		return
-	var layer := _objects if _objects != null else self
-	layer.set_cell(cell, _source_id, atlas)
+	_objects.set_cell(cell, _source_id, tile)
 
 
-func _build_atlas() -> Image:
-	var image := Image.create(ATLAS_COUNT * TILE, TILE, false, Image.FORMAT_RGBA8)
-	image.fill(Color(0, 0, 0, 0))
-	var grass := Color8(112, 158, 78)
-	var grass_dark := Color8(78, 122, 56)
-	var grass_light := Color8(150, 186, 104)
-	_draw_grass(image, A_GRASS.x, grass, grass_dark, grass_light, 0)
-	_draw_grass(image, A_GRASS_B.x, Color8(102, 148, 72), grass_dark, grass_light, 3)
-	_draw_flower(image, grass, grass_dark, grass_light)
-	_draw_grass(image, A_SHADOW.x, Color8(72, 112, 54), Color8(56, 90, 42), Color8(96, 132, 70), 1)
-	_draw_road(image)
-	_draw_tree(image, grass, grass_dark, grass_light)
-	_draw_flat_roof(image, A_HOME_CAP.x, Color8(176, 78, 62), Color8(214, 118, 96), Color8(120, 48, 40), false)
-	_draw_flat_roof(image, A_HOME_EAVE.x, Color8(176, 78, 62), Color8(214, 118, 96), Color8(120, 48, 40), true)
-	_draw_house_wall(image, A_HOME_WALL.x, Color8(240, 224, 196), Color8(120, 84, 60), Color8(142, 188, 206))
-	_draw_door(image, A_HOME_DOOR.x, Color8(240, 224, 196), Color8(92, 56, 38), Color8(230, 200, 120))
-	_draw_awning(image, A_CAFE_CAP.x, Color8(214, 86, 70), Color8(246, 220, 186), Color8(120, 48, 40), false)
-	_draw_awning(image, A_CAFE_EAVE.x, Color8(214, 86, 70), Color8(246, 220, 186), Color8(120, 48, 40), true)
-	_draw_shop_wall(image, A_CAFE_WALL.x, Color8(255, 244, 230), Color8(140, 72, 52), Color8(255, 214, 140))
-	_draw_door(image, A_CAFE_DOOR.x, Color8(255, 244, 230), Color8(110, 62, 46), Color8(255, 220, 140))
-	_draw_flat_roof(image, A_OFFICE_CAP.x, Color8(62, 86, 118), Color8(110, 140, 170), Color8(40, 56, 78), false)
-	_draw_flat_roof(image, A_OFFICE_EAVE.x, Color8(62, 86, 118), Color8(110, 140, 170), Color8(40, 56, 78), true)
-	_draw_office_wall(image, A_OFFICE_WALL.x, Color8(214, 224, 232), Color8(62, 86, 112), Color8(126, 180, 208))
-	_draw_door(image, A_OFFICE_DOOR.x, Color8(214, 224, 232), Color8(46, 62, 88), Color8(180, 210, 220))
-	_draw_flat_roof(image, A_PARK_CAP.x, Color8(46, 128, 86), Color8(96, 176, 122), Color8(90, 60, 36), false)
-	_draw_flat_roof(image, A_PARK_EAVE.x, Color8(46, 128, 86), Color8(96, 176, 122), Color8(120, 78, 46), true)
-	_draw_post(image, A_PARK_POST_L.x, true)
-	_draw_post(image, A_PARK_POST_R.x, false)
-	_draw_floor(image)
-	_draw_gate(image)
-	return image
+func _paint_plaza_and_park() -> void:
+	_fill_rect(Vector2i(30, 16), Vector2i(14, 8), PLAZA)
+	# Keep the vertical road and the south sidewalk readable through the plaza.
+	for y in range(16, 24):
+		_ground[Vector2i(36, y)] = ROAD if y < 20 else WALK
+	_prop(Vector2i(36, 17), SIGN)
+	_blocked[Vector2i(36, 17)] = true
+	for y in range(26, 38):
+		for x in range(42, 59):
+			if _ground.get(Vector2i(x, y)) == ROAD:
+				continue
+			if (x + y) % 3 == 0:
+				_prop(Vector2i(x, y), TREE)
+				_blocked[Vector2i(x, y)] = true
+			elif (x * 2 + y) % 5 == 0:
+				_prop(Vector2i(x, y), FLOWER_A if x % 2 == 0 else FLOWER_B)
+				_blocked[Vector2i(x, y)] = true
+	for bench_y in [27, 32, 36]:
+		_prop(Vector2i(46, bench_y), BENCH)
+		_prop(Vector2i(54, bench_y), BENCH)
 
 
-func _draw_grass(img: Image, index: int, base: Color, dark: Color, light: Color, phase: int) -> void:
-	_fill_tile(img, index, base)
-	var blades: Array[Vector2i] = [
-		Vector2i(2, 4),
-		Vector2i(3, 3),
-		Vector2i(3, 4),
-		Vector2i(11, 9),
-		Vector2i(12, 8),
-		Vector2i(12, 9),
-		Vector2i(6, 13),
-		Vector2i(7, 12),
-	]
-	for i in blades.size():
-		var blade: Vector2i = blades[i]
-		var color := dark if i % 2 == 0 else light
-		_px(img, index, (blade.x + phase) % TILE, (blade.y + phase * 2) % TILE, color)
-
-
-func _draw_flower(img: Image, base: Color, dark: Color, light: Color) -> void:
-	_draw_grass(img, A_FLOWER.x, base, dark, light, 2)
-	_rect(img, A_FLOWER.x, 8, 9, 1, 5, Color8(60, 122, 48))
-	_disc(img, A_FLOWER.x, 8, 7, 2, Color8(244, 214, 86))
-	_px(img, A_FLOWER.x, 8, 7, Color8(232, 120, 64))
-
-
-func _draw_road(img: Image) -> void:
-	var index := A_ROAD.x
-	_fill_tile(img, index, Color8(196, 176, 142))
-	_rect(img, index, 2, 3, 3, 2, Color8(210, 194, 162))
-	_rect(img, index, 9, 8, 4, 2, Color8(176, 156, 124))
-	_px(img, index, 5, 12, Color8(176, 156, 124))
-	_px(img, index, 12, 4, Color8(214, 198, 168))
-
-
-func _draw_tree(img: Image, base: Color, dark: Color, light: Color) -> void:
-	var index := A_TREE.x
-	_draw_grass(img, index, base, dark, light, 1)
-	_disc(img, index, 8, 6, 6, Color8(28, 78, 36))
-	_disc(img, index, 8, 6, 5, Color8(46, 122, 58))
-	_disc(img, index, 6, 4, 2, Color8(110, 170, 90))
-	_rect(img, index, 7, 10, 2, 6, Color8(118, 78, 42))
-
-
-func _draw_flat_roof(img: Image, index: int, main: Color, highlight: Color, eave: Color, draw_eave: bool) -> void:
-	_fill_tile(img, index, main)
-	if draw_eave:
-		_rect(img, index, 0, TILE - 3, TILE, 3, eave)
-	else:
-		_rect(img, index, 0, 0, TILE, 2, highlight)
-
-
-func _draw_awning(img: Image, index: int, a: Color, b: Color, eave: Color, draw_eave: bool) -> void:
-	for y in TILE:
-		var color := b if (y % 4) < 2 else a
-		_rect(img, index, 0, y, TILE, 1, color)
-	if draw_eave:
-		_rect(img, index, 0, TILE - 3, TILE, 3, eave)
-
-
-func _draw_house_wall(img: Image, index: int, wall: Color, frame: Color, glass: Color) -> void:
-	_fill_tile(img, index, wall)
-	_window(img, index, 4, 4, 8, 7, frame, glass)
-
-
-func _draw_shop_wall(img: Image, index: int, wall: Color, frame: Color, glass: Color) -> void:
-	_fill_tile(img, index, wall)
-	_window(img, index, 2, 4, 12, 8, frame, glass)
-
-
-func _draw_office_wall(img: Image, index: int, wall: Color, frame: Color, glass: Color) -> void:
-	_fill_tile(img, index, wall)
-	_window(img, index, 1, 3, 6, 8, frame, glass)
-	_window(img, index, 9, 3, 6, 8, frame, glass)
-
-
-func _window(img: Image, index: int, x: int, y: int, w: int, h: int, frame: Color, glass: Color) -> void:
-	_rect(img, index, x, y, w, h, frame)
-	_rect(img, index, x + 1, y + 1, w - 2, h - 2, glass)
-	_px(img, index, x + 1, y + 1, Color(glass.r, glass.g, glass.b).lightened(0.35))
-
-
-func _draw_door(img: Image, index: int, wall: Color, door: Color, knob: Color) -> void:
-	_fill_tile(img, index, wall)
-	_rect(img, index, 3, 1, 10, 15, door)
-	_rect(img, index, 4, 2, 8, 4, door.lightened(0.12))
-	_px(img, index, 11, 9, knob)
-
-
-func _draw_post(img: Image, index: int, left: bool) -> void:
-	_fill_tile(img, index, Color8(214, 198, 150))
-	var x := 0 if left else 11
-	_rect(img, index, x, 0, 5, TILE, Color8(120, 78, 46))
-
-
-func _draw_floor(img: Image) -> void:
-	var index := A_PARK_FLOOR.x
-	_fill_tile(img, index, Color8(214, 198, 150))
-	_px(img, index, 4, 6, Color8(190, 174, 126))
-	_px(img, index, 11, 11, Color8(190, 174, 126))
-
-
-func _draw_gate(img: Image) -> void:
-	var index := A_PARK_GATE.x
-	_fill_tile(img, index, Color8(214, 198, 150))
-	_rect(img, index, 1, 0, 14, 3, Color8(120, 78, 46))
-	_rect(img, index, 3, 3, 10, 13, Color8(64, 96, 58))
-
-
-func _fill_tile(img: Image, index: int, color: Color) -> void:
-	_rect(img, index, 0, 0, TILE, TILE, color)
-
-
-func _rect(img: Image, index: int, x: int, y: int, w: int, h: int, color: Color) -> void:
-	for yy in h:
-		for xx in w:
-			_px(img, index, x + xx, y + yy, color)
-
-
-func _disc(img: Image, index: int, cx: int, cy: int, radius: int, color: Color) -> void:
-	var r2 := radius * radius
-	for y in range(cy - radius, cy + radius + 1):
-		for x in range(cx - radius, cx + radius + 1):
-			var dx := x - cx
-			var dy := y - cy
-			if dx * dx + dy * dy <= r2:
-				_px(img, index, x, y, color)
-
-
-func _px(img: Image, index: int, x: int, y: int, color: Color) -> void:
-	if x < 0 or y < 0 or x >= TILE or y >= TILE:
-		return
-	img.set_pixel(index * TILE + x, y, color)
+func _paint_props() -> void:
+	for y in MAP_H:
+		for x in MAP_W:
+			var cell := Vector2i(x, y)
+			if _blocked.has(cell):
+				continue
+			var kind: Vector2i = _ground.get(cell, GRASS)
+			if kind == GRASS or kind == GRASS_B:
+				if y <= 1 or (x * 3 + y * 5) % 7 == 0:
+					_prop(cell, TREE)
+					_blocked[cell] = true
+				elif (x * 2 + y) % 9 == 0:
+					_prop(cell, FLOWER_A if (x + y) % 2 == 0 else FLOWER_B)
+					_blocked[cell] = true
+			elif kind == WALK and x % 6 == 1 and y != 6 and y != 20:
+				_prop(cell, LAMP)
+			elif kind == WALK and x % 8 == 3 and y == 9:
+				_prop(cell, BENCH)
+			elif kind == PLAZA and x % 5 == 0 and y % 3 == 0:
+				_prop(cell, BENCH if x % 2 == 0 else FLOWER_B)

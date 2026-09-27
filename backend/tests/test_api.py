@@ -123,5 +123,5 @@ def test_events_reflect_simulation() -> None:
         "timestamp": "08:00",
         "agent_id": "mina",
         "event": "left",
-        "location": "home",
+        "location": "mina_home",
     }

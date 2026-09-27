@@ -7,6 +7,7 @@ from app import state
 from app.config import LLM_DIALOGUE_COOLDOWN_MINUTES
 from app.simulation.llm_session import service_pending
 from app.simulation.loop import broadcast_tick
+from app.simulation.poi import POIS
 from app.simulation.world import World
 
 STAY = '{"action":"stay","target":"","say":"早安","thought":"先看看周圍"}'
@@ -103,7 +104,7 @@ def test_decision_schema_limits_target_to_other_ids() -> None:
     assert world.llm is not None
     asyncio.run(service_pending(world.llm))
 
-    pois = ["home", "cafe", "office", "park"]
+    pois = list(POIS)
     assert schemas["alex"]["properties"]["target"]["enum"] == [*pois, "mina", "rin", ""]
     assert "alex" not in schemas["alex"]["properties"]["target"]["enum"]
     assert schemas["mina"]["properties"]["target"]["enum"] == [*pois, "alex", "rin", ""]
@@ -126,6 +127,7 @@ def test_resident_name_target_maps_to_id() -> None:
         return STAY
 
     world = World(brain_mode="llm", decider=fake)
+    _gather(world, "cafe")
     world.tick()
     assert world.llm is not None
     asyncio.run(service_pending(world.llm))
@@ -193,6 +195,17 @@ def _user_text(messages: list[dict[str, str]]) -> str:
     return next(item["content"] for item in messages if item["role"] == "user")
 
 
+def _gather(world: World, place: str) -> None:
+    """Put everyone in one place. Spawn leaves each resident at their own home."""
+    assert world.llm is not None
+    poi = POIS[place]
+    for resident in world.llm.residents:
+        resident.location = place
+        resident.target_location = place
+        resident.position = poi.position
+        resident.state = "idle"
+
+
 def _drain(world: World) -> None:
     assert world.llm is not None
     if world.llm.queue.qsize():
@@ -220,7 +233,8 @@ def test_prompt_names_places_and_recent_lines() -> None:
 
     assert len(prompts) >= 2
     first = prompts[0]
-    assert "home（家）" in first
+    assert "mina_home（Mina 的家）" in first
+    assert "alex_home（Alex 的家）" in first
     assert "cafe（咖啡廳）" in first
     assert "office（辦公室）" in first
     assert "park（公園）" in first
@@ -307,6 +321,7 @@ def test_pair_cooldown_rejects_talk_then_allows_it() -> None:
         return _decision("talk_to", other, say, say)
 
     world = World(brain_mode="llm", decider=fake)
+    _gather(world, "cafe")
     assert world.llm is not None
     said: list[str] = []
     for _ in range(12):
@@ -371,6 +386,7 @@ def test_situation_prompt_shows_company_unanswered_and_last_seen() -> None:
         return SILENT
 
     world = World(brain_mode="llm", decider=fake)
+    _gather(world, "rin_home")
     assert world.llm is not None
     world.tick()
     _drain(world)
@@ -397,7 +413,7 @@ def test_situation_prompt_shows_company_unanswered_and_last_seen() -> None:
     assert "這裡只有你" not in prompt
     assert f"Rin 對你說：『{question}』（你還沒回應）" in prompt
     assert "你最後看到 Mina 是在 park（公園）。" in prompt
-    assert "你最後看到 Rin 是在 home（家）。" in prompt
+    assert "你最後看到 Rin 是在 rin_home（Rin 的家）。" in prompt
 
     world.llm.waiting.discard("alex")
     world.llm.now_minutes += 31

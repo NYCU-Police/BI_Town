@@ -8,11 +8,11 @@ from app.config import (
     MAX_WORLD_EVENTS,
     current_brain_mode,
 )
-from app.models.schemas import Agent, Position, WorldEvent, WorldSnapshot, WorldState
+from app.models.schemas import Agent, WorldEvent, WorldSnapshot, WorldState
 from app.simulation.clock import advance_clock
 from app.simulation.fake_agent import apply_schedule, move_agent
 from app.simulation.llm_session import Decider, LlmSession
-from app.simulation.poi import POIS
+from app.simulation.poi import home_for
 
 
 @dataclass(frozen=True)
@@ -22,13 +22,13 @@ class TickResult:
 
 
 def _agent_at_home(agent_id: str, name: str) -> Agent:
-    home = POIS["home"]
+    home = home_for(agent_id)
     return Agent(
         id=agent_id,
         name=name,
-        position=Position(x=home.x, y=home.y),
-        location="home",
-        target_location="home",
+        position=home.position,
+        location=home.id,
+        target_location=home.id,
         state="idle",
     )
 

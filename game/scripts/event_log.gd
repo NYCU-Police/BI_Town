@@ -14,7 +14,7 @@ func add_event(line: String) -> void:
 	_lines.append(line)
 	while _lines.size() > MAX_EVENTS:
 		_lines.remove_at(0)
-	text = "\n\n".join(_lines)
+	text = "\n".join(_lines)
 	call_deferred("_follow_bottom")
 
 

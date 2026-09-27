@@ -24,7 +24,7 @@ from app.config import AGENT_SPEED_PER_TICK, ARRIVAL_DISTANCE_THRESHOLD
 from app.models.schemas import Position
 from app.simulation.clock import advance_clock, parse_time
 from app.simulation.fake_agent import distance, step_towards
-from app.simulation.poi import POIS
+from app.simulation.poi import POIS, home_for
 
 IDLE_DECISION_MINUTES = 15
 MAX_CONSECUTIVE_DIALOGUE = 6
@@ -44,7 +44,7 @@ SYSTEM_PROMPT = """\
 你是小鎮居民。只輸出一個 JSON 物件，不要加其他文字。
 想法（thought）與對話（say）必須使用繁體中文。
 action 只能是 move_to、stay、talk_to。
-move_to 的 target 只能是 home、cafe、office、park。
+move_to 的 target 只能是已知地點 id。
 talk_to 的 target 必須是同地點、且沒有在移動的另一位居民 id。
 stay 的 target 必須是空字串。
 沒有要說的話時，say 必須是空字串。
@@ -71,7 +71,7 @@ class Resident:
     location: str
     position: Position
     state: str = "idle"
-    target_location: str = "home"
+    target_location: str = ""
     idle_minutes: int = 0
     minutes_here: int = 0
     last_thought: str = ""
@@ -150,14 +150,14 @@ class DialogueTracker:
 
 
 def _persona(resident_id: str, name: str, text: str) -> Resident:
-    home = POIS["home"]
+    home = home_for(resident_id)
     return Resident(
         id=resident_id,
         name=name,
         persona=text,
-        location="home",
-        position=Position(x=home.x, y=home.y),
-        target_location="home",
+        location=home.id,
+        position=home.position,
+        target_location=home.id,
     )
 
 
@@ -302,7 +302,7 @@ def build_messages(
         f"現在是 {time_str}，你在 {actor.location}。\n"
         f"其他居民：{roster}\n"
         f"同地點、沒有在移動的人：{here}\n"
-        f"地點 id：home、cafe、office、park\n"
+        f"地點 id：{'、'.join(POIS)}\n"
         f"上一次的想法：{actor.last_thought or '（還沒有）'}\n"
         f"你已經在 {actor.location} 待了 {actor.minutes_here} 分鐘。\n"
         f"最近的記憶：\n{memory_text}"
@@ -492,11 +492,19 @@ def run_town(
     output_path: Path | None = None,
     model_label: str = "fake",
     echo: bool = True,
+    meet: str | None = None,
 ) -> RunStats:
     """Advance game minutes with no sleep. LLM errors become stay."""
     if clock_minutes(start) >= clock_minutes(end):
         raise ValueError("結束時間必須晚於開始時間，且不跨日")
     residents = spawn_residents()
+    if meet is not None:
+        meeting = POIS[meet]
+        for resident in residents:
+            resident.location = meeting.id
+            resident.target_location = meeting.id
+            resident.position = meeting.position
+            resident.state = "idle"
     by_id = {resident.id: resident for resident in residents}
     chat = client if client is not None else OllamaChatClient.from_env()
     destination = output_path or default_output_path()
