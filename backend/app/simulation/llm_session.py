@@ -23,20 +23,25 @@ from app.config import (
     DEFAULT_LLM_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_URL,
     GAME_MINUTES_PER_TICK,
+    INITIAL_DAY,
+    INITIAL_TIME,
     LLM_DIALOGUE_COOLDOWN_MINUTES,
     LLM_IDLE_DECISION_MINUTES,
     LLM_MAX_CONSECUTIVE_DIALOGUE,
     LLM_MEMORY_PROMPT_LIMIT,
     LLM_MEMORY_STORE_LIMIT,
+    LLM_MIN_STAY_MINUTES,
     LLM_RECENT_SAY_LIMIT,
     LLM_RECENT_SAY_PROMPT_LIMIT,
     LLM_RECENT_THOUGHT_LIMIT,
     LLM_SAY_SIMILARITY,
     LLM_TEMPERATURE,
+    LLM_THOUGHT_SIMILARITY,
     LLM_UNANSWERED_MINUTES,
     current_llm_think,
 )
 from app.models.schemas import Agent, Position, WorldEvent
+from app.simulation.clock import advance_clock
 from app.simulation.fake_agent import move_agent
 from app.simulation.poi import POIS
 
@@ -68,8 +73,8 @@ PLACE_LABELS = {
     "office": "辦公室",
     "park": "公園",
 }
-REPEAT_SAY = "你已經說過類似的話，請說新的內容，或結束對話去做別的事"
-REPEAT_THOUGHT = "你已經想過類似的事，請重新思考。"
+REPEAT_SAY = "你已經說過類似的話，請說新的內容"
+REPEAT_THOUGHT = "請換個角度想想現在的處境"
 
 
 @dataclass
@@ -105,6 +110,7 @@ class Resident:
     target_location: str = "home"
     idle_minutes: int = 0
     minutes_here: int = 0
+    stay_until_minute: int | None = None
     last_thought: str = ""
     memories: deque[str] = field(
         default_factory=lambda: deque(maxlen=LLM_MEMORY_STORE_LIMIT)
@@ -365,23 +371,50 @@ def label_places(text: str) -> str:
     return labeled
 
 
-def _too_similar(text: str, previous: list[str], reason: str) -> str | None:
+def _too_similar(
+    text: str,
+    previous: list[str],
+    reason: str,
+    threshold: float,
+) -> str | None:
     utterance = text.strip()
     if not utterance:
         return None
     for earlier in previous:
         ratio = SequenceMatcher(None, utterance, earlier).ratio()
-        if ratio >= LLM_SAY_SIMILARITY:
+        if ratio >= threshold:
             return reason
     return None
 
 
 def repeated_say(actor: Resident, say: str) -> str | None:
-    return _too_similar(say, list(actor.recent_says), REPEAT_SAY)
+    return _too_similar(say, list(actor.recent_says), REPEAT_SAY, LLM_SAY_SIMILARITY)
 
 
 def repeated_thought(actor: Resident, thought: str) -> str | None:
-    return _too_similar(thought, list(actor.recent_thoughts), REPEAT_THOUGHT)
+    return _too_similar(
+        thought,
+        list(actor.recent_thoughts),
+        REPEAT_THOUGHT,
+        LLM_THOUGHT_SIMILARITY,
+    )
+
+
+def must_stay(actor: Resident, now_minutes: int) -> bool:
+    until = actor.stay_until_minute
+    return until is not None and now_minutes < until
+
+
+def hold_departure(decision: Decision, actor: Resident, now_minutes: int) -> Decision:
+    """Arrival lock is not a failure: keep the thought and do not retry."""
+    if decision.action != "move_to" or not must_stay(actor, now_minutes):
+        return decision
+    return decision.model_copy(update={"action": "stay", "target": ""})
+
+
+def stay_until_clock(until_minute: int) -> str:
+    _day, clock = advance_clock(INITIAL_DAY, INITIAL_TIME, until_minute)
+    return clock
 
 
 def people_here(actor: Resident, residents: list[Resident]) -> list[Resident]:
@@ -404,6 +437,11 @@ def situation_text(
     lines = [
         f"你在 {place_name(actor.location)}，已經待了 {actor.minutes_here} 分鐘。",
     ]
+    until = actor.stay_until_minute
+    if until is not None and now_minutes < until:
+        lines.append(
+            f"你剛到 {place_name(actor.location)}，至少會待到 {stay_until_clock(until)}"
+        )
     company = people_here(actor, residents)
     if company:
         for other in company:
@@ -584,6 +622,8 @@ class LlmSession:
             actor.id, decision.target
         ):
             decision = Decision(action="stay", thought=decision.thought)
+        else:
+            decision = hold_departure(decision, actor, self.now_minutes)
         before = (actor.state, actor.location, actor.position.x, actor.position.y)
         events = self._commit(actor, decision, time_str, item.job)
         after = (actor.state, actor.location, actor.position.x, actor.position.y)
@@ -738,6 +778,7 @@ class LlmSession:
             seen = "、".join(other.name for other in company)
         else:
             seen = "沒有別人"
+        actor.stay_until_minute = self.now_minutes + LLM_MIN_STAY_MINUTES
         actor.remember(time_str, f"抵達 {actor.location}，看到 {seen}")
         for other in company:
             other.remember(time_str, f"看到 {actor.name} 抵達 {actor.location}")

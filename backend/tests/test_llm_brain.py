@@ -174,7 +174,7 @@ def test_invalid_target_retries_once_then_stays_quietly(caplog) -> None:
 
 
 SILENT = '{"action":"stay","target":"","say":"","thought":""}'
-REPEAT_REASON = "你已經說過類似的話，請說新的內容，或結束對話去做別的事"
+REPEAT_REASON = "你已經說過類似的話，請說新的內容"
 
 
 def _decision(
@@ -416,7 +416,7 @@ def test_repeated_thought_retries() -> None:
     calls: list[list[dict[str, str]]] = []
     first = "她怎麼還沒到公園"
     echo = "她怎麼還沒到公園啊"
-    reason = "你已經想過類似的事，請重新思考。"
+    reason = "請換個角度想想現在的處境"
 
     async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
         if _actor_id(messages) != "alex":
@@ -572,3 +572,153 @@ def test_departure_sighting_is_replaced_when_met_again() -> None:
     sight = alex.last_seen["mina"]
     assert sight.place == "office"
     assert not sight.destination
+
+
+def test_opening_can_leave_but_arrival_stays_for_twenty_minutes() -> None:
+    from app.config import INITIAL_DAY, INITIAL_TIME, LLM_MIN_STAY_MINUTES
+    from app.simulation.clock import advance_clock
+
+    phase = {"name": "opening"}
+    soon_calls: list[list[dict[str, str]]] = []
+    leave_thought = "坐不住想去公園"
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        if _actor_id(messages) != "alex":
+            return SILENT
+        name = phase["name"]
+        if name == "opening":
+            return _decision("move_to", "cafe", say="", thought="先去咖啡廳")
+        if name == "soon":
+            soon_calls.append(messages)
+            return _decision("move_to", "park", say="", thought=leave_thought)
+        if name == "later":
+            return _decision("move_to", "park", say="", thought="待夠了再走")
+        return SILENT
+
+    world = World(brain_mode="llm", decider=fake)
+    assert world.llm is not None
+    world.tick()
+    _drain(world)
+    opened = world.tick()
+    alex = world.llm.by_id["alex"]
+    assert alex.state == "walking"
+    assert alex.target_location == "cafe"
+    assert any(
+        event.event == "left" and event.agent_id == "alex" for event in opened.events
+    )
+
+    phase["name"] = "soon"
+    arrived = False
+    for _ in range(40):
+        world.tick()
+        _drain(world)
+        if alex.state == "idle" and alex.location == "cafe":
+            arrived = True
+            break
+    assert arrived
+    assert len(soon_calls) == 1
+    assert "上次的決定無效" not in soon_calls[0][-1]["content"]
+    assert alex.stay_until_minute == world.llm.now_minutes - 1 + LLM_MIN_STAY_MINUTES
+    _day, until = advance_clock(INITIAL_DAY, INITIAL_TIME, alex.stay_until_minute or 0)
+    prompt = _user_text(soon_calls[0])
+    assert f"你剛到 cafe（咖啡廳），至少會待到 {until}" in prompt
+
+    held = world.tick()
+    assert alex.state == "idle"
+    assert alex.location == "cafe"
+    assert alex.target_location != "park"
+    thoughts = [
+        event.content
+        for event in held.events
+        if event.event == "thought" and event.agent_id == "alex"
+    ]
+    assert thoughts == [leave_thought]
+    assert [event for event in held.events if event.event == "left"] == []
+
+    phase["name"] = "quiet"
+    while world.llm.now_minutes < (alex.stay_until_minute or 0):
+        world.tick()
+        _drain(world)
+    world.llm.inbox.clear()
+    world.llm.waiting.discard("alex")
+    assert alex.state == "idle"
+    assert world.llm.now_minutes >= (alex.stay_until_minute or 0)
+
+    phase["name"] = "later"
+    world.llm._request(
+        alex,
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    left = world.tick()
+    assert alex.state == "walking"
+    assert alex.target_location == "park"
+    assert any(
+        event.event == "left" and event.agent_id == "alex" for event in left.events
+    )
+
+
+def test_repeat_prompts_and_thought_threshold() -> None:
+    near_a = "窗外的人越走越慢"
+    near_b = "窗外的人越走越遠"
+    say_calls: list[list[dict[str, str]]] = []
+
+    async def fake_say(messages: list[dict[str, str]], _schema: dict) -> str:
+        if _actor_id(messages) != "alex":
+            return SILENT
+        say_calls.append(messages)
+        utterance = near_a if len(say_calls) == 1 else near_b
+        thought = f"第{len(say_calls)}次"
+        return _decision("stay", say=utterance, thought=thought)
+
+    say_world = World(brain_mode="llm", decider=fake_say)
+    assert say_world.llm is not None
+    say_world.tick()
+    _drain(say_world)
+    say_world.tick()
+    say_world.llm._request(
+        say_world.llm.by_id["alex"],
+        say_world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(say_world)
+    say_world.tick()
+    assert len(say_calls) == 3
+    retry = say_calls[2][-1]["content"]
+    assert REPEAT_REASON in retry
+    assert "或結束對話去做別的事" not in retry
+
+    thought_calls: list[list[dict[str, str]]] = []
+
+    async def fake_thought(messages: list[dict[str, str]], _schema: dict) -> str:
+        if _actor_id(messages) != "alex":
+            return SILENT
+        thought_calls.append(messages)
+        thought = near_a if len(thought_calls) == 1 else near_b
+        return _decision("stay", say="", thought=thought)
+
+    thought_world = World(brain_mode="llm", decider=fake_thought)
+    assert thought_world.llm is not None
+    thought_world.tick()
+    _drain(thought_world)
+    thought_world.tick()
+    thought_world.llm._request(
+        thought_world.llm.by_id["alex"],
+        thought_world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(thought_world)
+    result = thought_world.tick()
+    assert len(thought_calls) == 2
+    assert "上次的決定無效" not in thought_calls[1][-1]["content"]
+    thoughts = [
+        event.content
+        for event in result.events
+        if event.event == "thought" and event.agent_id == "alex"
+    ]
+    assert thoughts == [near_b]
+    assert "離開" not in "請換個角度想想現在的處境"
