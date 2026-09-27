@@ -33,6 +33,9 @@ htmlcov/
 # Web export artifacts (preset itself is tracked)
 game/build/
 
+# Local LLM POC transcripts
+poc_output/
+
 # Editors / OS
 .idea/
 .vscode/
