@@ -2,29 +2,30 @@ extends TileMapLayer
 
 ## Visual only. Place ids and coordinates live in world.gd and must match
 ## backend/app/simulation/poi.py. Tiles are Kenney RPG Urban Pack, 16×16
-## with 1px spacing.
+## with 1px spacing. The pack has a rendered sample, not a tile map, so this
+## layout follows that sample: pavement for the town, grass only in the park.
 
 const TILE := 16
-const MAP_W := 60
-const MAP_H := 40
+const MAP_W := 36
+const MAP_H := 28
 
 const GRASS := Vector2i(1, 1)
-const GRASS_B := Vector2i(5, 1)
+const PAVEMENT := Vector2i(9, 4)
 const ROAD := Vector2i(9, 1)
 const WALK := Vector2i(1, 4)
-const PLAZA := Vector2i(5, 4)
 const TREE := Vector2i(21, 10)
 const BENCH := Vector2i(1, 10)
 const LAMP := Vector2i(0, 6)
-const FLOWER_A := Vector2i(6, 10)
-const FLOWER_B := Vector2i(7, 10)
+const HEDGE := Vector2i(5, 12)
+const HEDGE_END := Vector2i(6, 12)
+const PLANTER := Vector2i(7, 12)
 const WINDOW := Vector2i(11, 10)
 const DOOR_HOME := Vector2i(13, 11)
 const DOOR_CAFE := Vector2i(14, 10)
 const DOOR_GLASS := Vector2i(15, 10)
 const AWNING := Vector2i(6, 8)
 const GLASS := Vector2i(9, 14)
-const SIGN := Vector2i(11, 12)
+const SIGN := Vector2i(6, 6)
 
 var _source_id := 0
 var _objects: TileMapLayer
@@ -48,8 +49,8 @@ func _rebuild() -> void:
 	atlas.texture_region_size = Vector2i(TILE, TILE)
 	atlas.separation = Vector2i(1, 1)
 	var used: Array[Vector2i] = [
-		GRASS, GRASS_B, ROAD, WALK, PLAZA, TREE, BENCH, LAMP,
-		FLOWER_A, FLOWER_B, WINDOW, DOOR_HOME, DOOR_CAFE, DOOR_GLASS,
+		GRASS, PAVEMENT, ROAD, WALK, TREE, BENCH, LAMP,
+		HEDGE, HEDGE_END, PLANTER, WINDOW, DOOR_HOME, DOOR_CAFE, DOOR_GLASS,
 		AWNING, GLASS, SIGN,
 		Vector2i(16, 0), Vector2i(17, 0), Vector2i(20, 0),
 		Vector2i(16, 2), Vector2i(17, 2), Vector2i(20, 2),
@@ -57,7 +58,6 @@ func _rebuild() -> void:
 		Vector2i(16, 6), Vector2i(17, 6), Vector2i(20, 6),
 		Vector2i(12, 0), Vector2i(13, 0), Vector2i(15, 0),
 		Vector2i(12, 1), Vector2i(13, 1), Vector2i(15, 1),
-		Vector2i(8, 13), Vector2i(8, 15),
 	]
 	for coord in used:
 		atlas.create_tile(coord)
@@ -74,8 +74,9 @@ func _rebuild() -> void:
 	_blocked.clear()
 	_paint_base()
 	_paint_roads()
+	_paint_park()
+	_paint_plaza()
 	_paint_buildings()
-	_paint_plaza_and_park()
 	_paint_props()
 	for cell in _ground:
 		set_cell(cell, _source_id, _ground[cell])
@@ -84,8 +85,7 @@ func _rebuild() -> void:
 func _paint_base() -> void:
 	for y in MAP_H:
 		for x in MAP_W:
-			var cell := Vector2i(x, y)
-			_ground[cell] = GRASS_B if (x + y) % 2 == 0 else GRASS
+			_ground[Vector2i(x, y)] = PAVEMENT
 
 
 func _fill_rect(origin: Vector2i, size: Vector2i, tile: Vector2i) -> void:
@@ -95,24 +95,32 @@ func _fill_rect(origin: Vector2i, size: Vector2i, tile: Vector2i) -> void:
 
 
 func _paint_roads() -> void:
-	# North street under the homes, south street in front of the lower doors,
-	# and verticals on each door column so the network reaches every place.
-	_fill_rect(Vector2i(1, 6), Vector2i(56, 1), WALK)
-	_fill_rect(Vector2i(1, 7), Vector2i(56, 2), ROAD)
-	_fill_rect(Vector2i(1, 9), Vector2i(56, 1), WALK)
-	_fill_rect(Vector2i(1, 18), Vector2i(56, 2), ROAD)
-	_fill_rect(Vector2i(1, 20), Vector2i(56, 1), WALK)
-	for column in [4, 14, 24, 36, 50]:
-		for y in range(7, 20):
+	_fill_rect(Vector2i(0, 5), Vector2i(MAP_W, 1), WALK)
+	_fill_rect(Vector2i(0, 6), Vector2i(MAP_W, 2), ROAD)
+	_fill_rect(Vector2i(0, 8), Vector2i(MAP_W, 1), WALK)
+	# Door columns stay on the street so a straight walk does not enter a house.
+	for column in [3, 10, 17, 24, 31]:
+		for y in [6, 7]:
 			_ground[Vector2i(column, y)] = ROAD
-			if column > 0:
-				var left := Vector2i(column - 1, y)
-				if _ground.get(left) != ROAD:
-					_ground[left] = WALK
-		# Park path continues south from the store column.
-		if column == 50:
-			for y in range(20, 31):
-				_ground[Vector2i(column, y)] = ROAD
+	# Grey footpath from the street, through the plaza, into the park.
+	for y in range(9, MAP_H):
+		_ground[Vector2i(24, y)] = ROAD
+
+
+func _paint_park() -> void:
+	for y in range(16, MAP_H):
+		for x in range(1, MAP_W - 1):
+			if x == 24:
+				continue
+			_ground[Vector2i(x, y)] = GRASS
+
+
+func _paint_plaza() -> void:
+	for y in range(9, 16):
+		for x in range(15, 35):
+			if x == 24:
+				continue
+			_ground[Vector2i(x, y)] = WALK
 
 
 func _row(left: Vector2i, mid: Vector2i, right: Vector2i, width: int) -> Array:
@@ -128,49 +136,55 @@ func _row(left: Vector2i, mid: Vector2i, right: Vector2i, width: int) -> Array:
 
 
 func _paint_buildings() -> void:
-	var red_roof := _row(Vector2i(16, 0), Vector2i(17, 0), Vector2i(20, 0), 6)
-	var red_wall := _row(Vector2i(16, 2), Vector2i(17, 2), Vector2i(20, 2), 6)
-	var red_windows := red_wall.duplicate()
-	red_windows[2] = WINDOW
-	red_windows[4] = WINDOW
-	var red_door := red_wall.duplicate()
-	red_door[2] = DOOR_HOME
-	var orange_roof := _row(Vector2i(16, 4), Vector2i(17, 4), Vector2i(20, 4), 6)
-	var orange_wall := _row(Vector2i(16, 6), Vector2i(17, 6), Vector2i(20, 6), 6)
-	var orange_windows := orange_wall.duplicate()
-	orange_windows[1] = WINDOW
-	orange_windows[4] = WINDOW
-	var cafe_door := orange_wall.duplicate()
-	cafe_door[2] = DOOR_CAFE
-	var store_door := orange_wall.duplicate()
-	store_door[2] = DOOR_GLASS
-	store_door[1] = GLASS
-	store_door[3] = GLASS
-	var grey_roof := _row(Vector2i(12, 0), Vector2i(13, 0), Vector2i(15, 0), 6)
-	var grey_wall := _row(Vector2i(12, 1), Vector2i(13, 1), Vector2i(15, 1), 6)
-	var office_windows := grey_wall.duplicate()
-	office_windows[4] = WINDOW
-	var office_door := grey_wall.duplicate()
-	office_door[2] = DOOR_GLASS
-	var library_windows := grey_wall.duplicate()
-	library_windows[1] = WINDOW
-	library_windows[3] = WINDOW
-	library_windows[4] = WINDOW
-	var library_door := grey_wall.duplicate()
-	library_door[2] = DOOR_CAFE
+	var red_roof := _row(Vector2i(16, 0), Vector2i(17, 0), Vector2i(20, 0), 5)
+	var red_wall := _row(Vector2i(16, 2), Vector2i(17, 2), Vector2i(20, 2), 5)
+	var orange_roof := _row(Vector2i(16, 4), Vector2i(17, 4), Vector2i(20, 4), 5)
+	var orange_wall := _row(Vector2i(16, 6), Vector2i(17, 6), Vector2i(20, 6), 5)
+	var grey_roof := _row(Vector2i(12, 0), Vector2i(13, 0), Vector2i(15, 0), 5)
+	var grey_wall := _row(Vector2i(12, 1), Vector2i(13, 1), Vector2i(15, 1), 5)
 
-	# North row: door on the south edge, resident stands on the sidewalk below.
-	_stamp(Vector2i(2, 2), [red_roof, red_wall, red_windows, red_door])
-	_stamp(Vector2i(12, 2), [red_roof, red_wall, red_windows, red_door])
-	_stamp(Vector2i(22, 2), [red_roof, red_wall, red_windows, red_door])
-	_stamp(Vector2i(34, 2), [orange_roof, orange_wall, orange_windows, cafe_door])
-	_prop(Vector2i(36, 4), AWNING)
-	_stamp(Vector2i(48, 2), [orange_roof, orange_windows, orange_wall, store_door])
-	_prop(Vector2i(50, 4), AWNING)
-	# South row: door on the north edge, so the walk down the street stops
-	# on the sidewalk and does not cross the building.
-	_stamp(Vector2i(2, 21), [office_door, office_windows, grey_wall, grey_roof])
-	_stamp(Vector2i(12, 21), [library_door, library_windows, grey_wall, grey_roof])
+	_house(Vector2i(1, 1), red_roof, red_wall, DOOR_HOME, false)
+	_house(Vector2i(8, 1), orange_roof, orange_wall, DOOR_HOME, false)
+	_house(Vector2i(15, 1), grey_roof, grey_wall, DOOR_HOME, false)
+	_house(Vector2i(22, 1), orange_roof, orange_wall, DOOR_CAFE, true)
+	_house(Vector2i(29, 1), red_roof, red_wall, DOOR_GLASS, true)
+	# South doors face the street, so the roof is the last row.
+	_house_south(Vector2i(1, 9), grey_roof, grey_wall, DOOR_GLASS)
+	_house_south(Vector2i(8, 9), orange_roof, orange_wall, DOOR_CAFE)
+
+
+func _house(
+	origin: Vector2i,
+	roof: Array,
+	wall: Array,
+	door: Vector2i,
+	awning: bool,
+) -> void:
+	var windows := wall.duplicate()
+	windows[1] = WINDOW
+	windows[3] = WINDOW
+	var entrance := wall.duplicate()
+	entrance[2] = door
+	if door == DOOR_GLASS:
+		entrance[1] = GLASS
+		entrance[3] = GLASS
+	_stamp(origin, [roof, wall, windows, entrance])
+	if awning:
+		_prop(origin + Vector2i(2, 2), AWNING)
+
+
+func _house_south(
+	origin: Vector2i,
+	roof: Array,
+	wall: Array,
+	door: Vector2i,
+) -> void:
+	var windows := wall.duplicate()
+	windows[1] = WINDOW
+	windows[3] = WINDOW
+	var entrance := wall.duplicate()
+	entrance[2] = door
+	_stamp(origin, [entrance, windows, wall, roof])
 
 
 func _stamp(origin: Vector2i, rows: Array) -> void:
@@ -188,45 +202,40 @@ func _prop(cell: Vector2i, tile: Vector2i) -> void:
 	_objects.set_cell(cell, _source_id, tile)
 
 
-func _paint_plaza_and_park() -> void:
-	_fill_rect(Vector2i(30, 16), Vector2i(14, 8), PLAZA)
-	# Keep the vertical road and the south sidewalk readable through the plaza.
-	for y in range(16, 24):
-		_ground[Vector2i(36, y)] = ROAD if y < 20 else WALK
-	_prop(Vector2i(36, 17), SIGN)
-	_blocked[Vector2i(36, 17)] = true
-	for y in range(26, 38):
-		for x in range(42, 59):
-			if _ground.get(Vector2i(x, y)) == ROAD:
-				continue
-			if (x + y) % 3 == 0:
-				_prop(Vector2i(x, y), TREE)
-				_blocked[Vector2i(x, y)] = true
-			elif (x * 2 + y) % 5 == 0:
-				_prop(Vector2i(x, y), FLOWER_A if x % 2 == 0 else FLOWER_B)
-				_blocked[Vector2i(x, y)] = true
-	for bench_y in [27, 32, 36]:
-		_prop(Vector2i(46, bench_y), BENCH)
-		_prop(Vector2i(54, bench_y), BENCH)
-
-
 func _paint_props() -> void:
-	for y in MAP_H:
-		for x in MAP_W:
-			var cell := Vector2i(x, y)
-			if _blocked.has(cell):
-				continue
-			var kind: Vector2i = _ground.get(cell, GRASS)
-			if kind == GRASS or kind == GRASS_B:
-				if y <= 1 or (x * 3 + y * 5) % 7 == 0:
-					_prop(cell, TREE)
-					_blocked[cell] = true
-				elif (x * 2 + y) % 9 == 0:
-					_prop(cell, FLOWER_A if (x + y) % 2 == 0 else FLOWER_B)
-					_blocked[cell] = true
-			elif kind == WALK and x % 6 == 1 and y != 6 and y != 20:
-				_prop(cell, LAMP)
-			elif kind == WALK and x % 8 == 3 and y == 9:
-				_prop(cell, BENCH)
-			elif kind == PLAZA and x % 5 == 0 and y % 3 == 0:
-				_prop(cell, BENCH if x % 2 == 0 else FLOWER_B)
+	for lamp_x in [6, 13, 20, 27, 33]:
+		_place(Vector2i(lamp_x, 5), LAMP)
+		_place(Vector2i(lamp_x, 8), LAMP)
+	for bench_x in [6, 13, 27]:
+		_place(Vector2i(bench_x, 8), BENCH)
+	for gap_x in [6, 13, 20, 27]:
+		_place(Vector2i(gap_x, 2), TREE)
+	for gap_x in [6, 13]:
+		_place(Vector2i(gap_x, 11), TREE)
+	_prop(Vector2i(21, 11), SIGN)
+	_blocked[Vector2i(21, 11)] = true
+	for y in range(20, 26):
+		for x in range(2, 8):
+			if (x + y) % 2 == 0:
+				_place(Vector2i(x, y), TREE)
+		for x in range(28, 34):
+			if (x + y) % 2 == 0:
+				_place(Vector2i(x, y), TREE)
+	for x in range(2, MAP_W - 2, 3):
+		if x == 24 or x == 23 or x == 25:
+			continue
+		_place(Vector2i(x, 16), TREE)
+	_place(Vector2i(23, 20), BENCH)
+	_place(Vector2i(25, 22), BENCH)
+	_place(Vector2i(23, 24), BENCH)
+	_place(Vector2i(8, 19), HEDGE)
+	_place(Vector2i(9, 19), HEDGE_END)
+	_place(Vector2i(8, 20), PLANTER)
+	_place(Vector2i(10, 19), HEDGE)
+
+
+func _place(cell: Vector2i, tile: Vector2i) -> void:
+	if _blocked.has(cell):
+		return
+	_prop(cell, tile)
+	_blocked[cell] = true

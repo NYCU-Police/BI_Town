@@ -1,9 +1,9 @@
 extends Camera2D
 
-## Integer zoom keeps Kenney pixels on the nearest filter. Drag pans.
-## The opening frame shows the whole 60×40 map beside the event panel.
+## Wheel zoom stays on whole pixels. The opening frame scales the map so it
+## fills the area beside the event panel.
 
-const MAP := Vector2(960, 640)
+const MAP := Vector2(576, 448)
 const HUD_WIDTH := 360.0
 const MIN_ZOOM := 1
 const MAX_ZOOM := 4
@@ -65,11 +65,17 @@ func focus_agent(agent_id: String) -> void:
 
 func _fit_whole_map() -> void:
 	var view := get_viewport_rect().size
-	var spare_x := (view.x - HUD_WIDTH) - MAP.x
-	var left := spare_x / 2.0 if spare_x > 0.0 else 8.0
-	var spare_y := view.y - MAP.y
-	var top := spare_y / 2.0 if spare_y > 0.0 else 8.0
-	position = Vector2(view.x / 2.0 - left, view.y / 2.0 - top)
+	var visible_w := view.x - HUD_WIDTH
+	var fit := minf(visible_w / MAP.x, view.y / MAP.y)
+	zoom = Vector2(fit, fit)
+	_zoom_level = clampi(int(round(fit)), MIN_ZOOM, MAX_ZOOM)
+	var shown := MAP * fit
+	var left := (visible_w - shown.x) / 2.0
+	var top := (view.y - shown.y) / 2.0
+	position = Vector2(
+		(view.x / 2.0 - left) / fit,
+		(view.y / 2.0 - top) / fit,
+	)
 
 
 func _zoom_at(screen_at: Vector2, next_level: int) -> void:

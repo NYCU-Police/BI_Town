@@ -3,15 +3,15 @@ extends Node2D
 ## Must match backend/app/simulation/poi.py. These points are the ground
 ## in front of each door, so an idle resident stands on them as-is.
 const POIS := {
-	"mina_home": Vector2(72, 112),
-	"alex_home": Vector2(232, 112),
-	"rin_home": Vector2(392, 112),
-	"cafe": Vector2(584, 112),
-	"store": Vector2(808, 112),
-	"office": Vector2(72, 336),
-	"library": Vector2(232, 336),
-	"plaza": Vector2(584, 336),
-	"park": Vector2(808, 480),
+	"mina_home": Vector2(56, 96),
+	"alex_home": Vector2(168, 96),
+	"rin_home": Vector2(280, 96),
+	"cafe": Vector2(392, 96),
+	"store": Vector2(504, 96),
+	"office": Vector2(56, 144),
+	"library": Vector2(168, 144),
+	"plaza": Vector2(280, 192),
+	"park": Vector2(392, 320),
 }
 
 const PLACE_NAMES := {
@@ -34,10 +34,10 @@ const _LABEL_Y := {
 	"rin_home": -100.0,
 	"cafe": -100.0,
 	"store": -100.0,
-	"office": -60.0,
-	"library": -60.0,
-	"plaza": -60.0,
-	"park": -60.0,
+	"office": -48.0,
+	"library": -48.0,
+	"plaza": -48.0,
+	"park": -72.0,
 }
 
 @export var npc_scene: PackedScene

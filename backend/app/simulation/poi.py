@@ -51,37 +51,37 @@ def activities_for(poi_id: str, actor_id: str) -> tuple[Activity, ...]:
 
 
 # Coordinates are the ground in front of each door (feet), in pixels.
-# Keep game/scripts/world.gd POIS in sync. The map is 60×40 tiles of 16px.
+# Keep game/scripts/world.gd POIS in sync. The map is 36×28 tiles of 16px.
 POIS: dict[str, POI] = {
     "mina_home": POI(
         id="mina_home",
         name="Mina 的家",
-        x=72.0,
-        y=112.0,
+        x=56.0,
+        y=96.0,
         owner="mina",
         activities=_HOME_ACTIVITIES,
     ),
     "alex_home": POI(
         id="alex_home",
         name="Alex 的家",
-        x=232.0,
-        y=112.0,
+        x=168.0,
+        y=96.0,
         owner="alex",
         activities=_HOME_ACTIVITIES,
     ),
     "rin_home": POI(
         id="rin_home",
         name="Rin 的家",
-        x=392.0,
-        y=112.0,
+        x=280.0,
+        y=96.0,
         owner="rin",
         activities=_HOME_ACTIVITIES,
     ),
     "cafe": POI(
         id="cafe",
         name="咖啡廳",
-        x=584.0,
-        y=112.0,
+        x=392.0,
+        y=96.0,
         activities=(
             _activity("order_coffee", "點咖啡"),
             _activity("read_book", "看書"),
@@ -91,15 +91,15 @@ POIS: dict[str, POI] = {
     "store": POI(
         id="store",
         name="便利商店",
-        x=808.0,
-        y=112.0,
+        x=504.0,
+        y=96.0,
         activities=(_activity("shop", "買東西"),),
     ),
     "office": POI(
         id="office",
         name="辦公室",
-        x=72.0,
-        y=336.0,
+        x=56.0,
+        y=144.0,
         activities=(
             _activity("write_report", "寫報告"),
             _activity("sort_accounts", "整理帳目"),
@@ -109,8 +109,8 @@ POIS: dict[str, POI] = {
     "library": POI(
         id="library",
         name="圖書館",
-        x=232.0,
-        y=336.0,
+        x=168.0,
+        y=144.0,
         activities=(
             _activity("shelve_books", "整理書架"),
             _activity("borrow_book", "借書"),
@@ -120,8 +120,8 @@ POIS: dict[str, POI] = {
     "plaza": POI(
         id="plaza",
         name="廣場",
-        x=584.0,
-        y=336.0,
+        x=280.0,
+        y=192.0,
         activities=(
             _activity("read_board", "看公告欄"),
             _activity("wander", "閒逛"),
@@ -130,8 +130,8 @@ POIS: dict[str, POI] = {
     "park": POI(
         id="park",
         name="公園",
-        x=808.0,
-        y=480.0,
+        x=392.0,
+        y=320.0,
         activities=(
             _activity("stroll", "散步"),
             _activity("sit_bench", "坐長椅"),
