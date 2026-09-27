@@ -104,3 +104,31 @@ func _upsert_npc(agent: Dictionary, snap: bool) -> void:
 		push_error("NPC missing update_from_server()")
 		return
 	npc.update_from_server(agent, snap)
+	if npc.has_method("set_stand_offset"):
+		npc.set_stand_offset(_stand_offset_for(agent), snap)
+
+
+## Display-only. Server coordinates stay on the POI. Idle residents stand
+## on the ground in front of the door tiles (town_map bottom row, columns 1–2).
+func _stand_offset_for(agent: Dictionary) -> Vector2:
+	if str(agent.get("state", "")) != "idle":
+		return Vector2.ZERO
+	var pos_v: Variant = agent.get("position", {})
+	if typeof(pos_v) != TYPE_DICTIONARY:
+		return Vector2.ZERO
+	var coords: Dictionary = pos_v
+	var pos := Vector2(float(coords.get("x", 0.0)), float(coords.get("y", 0.0)))
+	for poi in POIS.values():
+		if pos.distance_to(poi) <= 1.0:
+			return _door_delta(poi)
+	return Vector2.ZERO
+
+
+func _door_delta(poi: Vector2) -> Vector2:
+	var origin_x := int(round(poi.x / 16.0)) - 2
+	var origin_y := int(round(poi.y / 16.0)) - 2
+	var door_x := float(origin_x + 2) * 16.0
+	# Sprite is 48px tall. Keep the body on the ground in front of the door,
+	# with only the top of the head overlapping the doorway.
+	var feet_y := float(origin_y + 4) * 16.0 + 42.0
+	return Vector2(door_x - poi.x, feet_y - poi.y)
