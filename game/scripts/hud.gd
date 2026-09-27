@@ -262,29 +262,32 @@ func _format_event(data: Dictionary) -> String:
 	if action == "said":
 		var content := str(data.get("content", ""))
 		var target_id := str(data.get("target_agent_id", ""))
-		if target_id.is_empty():
-			return "%s%s%s" % [
-				_tone(timestamp + " ", _SAID_COLOR),
+		var header := _join_header([_tone(timestamp, _SAID_COLOR), name])
+		if not target_id.is_empty():
+			header = _join_header([
+				_tone(timestamp, _SAID_COLOR),
 				name,
-				_tone("：" + content, _SAID_COLOR),
-			]
-		return "%s%s%s%s%s" % [
-			_tone(timestamp + " ", _SAID_COLOR),
-			name,
-			_tone(" → ", _SAID_COLOR),
-			_colored_name(target_id),
-			_tone("：" + content, _SAID_COLOR),
-		]
+				_tone("→", _SAID_COLOR),
+				_colored_name(target_id),
+			])
+		return header + "\n" + _tone("「%s」" % content, _SAID_COLOR)
 	if action == "thought":
-		return "%s%s%s" % [
-			_tone(timestamp + " ", _THOUGHT_COLOR),
-			name,
-			_tone("（想）" + str(data.get("content", "")), _THOUGHT_COLOR),
-		]
+		var header := _join_header([_tone(timestamp, _THOUGHT_COLOR), name])
+		header += _tone("（想）", _THOUGHT_COLOR)
+		return header + "\n" + _tone(str(data.get("content", "")), _THOUGHT_COLOR)
 	var location := str(data.get("location", "")).capitalize()
 	var verb := "抵達" if action == "entered" else "前往"
-	return "[font_size=12]%s%s%s[/font_size]" % [
-		_tone(timestamp + " ", _MOVE_COLOR),
+	return "[font_size=12]%s[/font_size]" % _join_header([
+		_tone(timestamp, _MOVE_COLOR),
 		name,
-		_tone(" %s %s" % [verb, location], _MOVE_COLOR),
-	]
+		_tone("%s %s" % [verb, location], _MOVE_COLOR),
+	])
+
+
+func _join_header(parts: Array) -> String:
+	var glued := ""
+	for index in parts.size():
+		if index > 0:
+			glued += _tone("\u00A0", _SAID_COLOR)
+		glued += parts[index]
+	return glued
