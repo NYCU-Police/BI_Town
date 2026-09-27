@@ -11,7 +11,8 @@ mina.png, alex.png, and rin.png are 16×16 crops from
 Spritesheet/roguelikeChar_transparent.png (tile 16×16, 1px margin):
 
 - mina.png: row 8, column 0 (topknot). Tunic shifted toward red.
-- alex.png: row 5, column 1 (long white hair). Tunic shifted toward cyan.
+- alex.png: row 10, column 1 (short dark hair). Tunic shifted toward cyan.
+  Pale hair-edge pixels were shifted to the same brown so the cut stays dark.
 - rin.png: row 7, column 1 (long brown hair). Tunic shifted toward gold.
 
 Hair, skin, and the rest of each sprite are unchanged Kenney pixels.
