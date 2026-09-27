@@ -26,7 +26,7 @@ from app.simulation.clock import advance_clock, parse_time
 from app.simulation.fake_agent import distance, step_towards
 from app.simulation.poi import POIS
 
-IDLE_DECISION_MINUTES = 30
+IDLE_DECISION_MINUTES = 15
 MAX_CONSECUTIVE_DIALOGUE = 6
 MEMORY_PROMPT_LIMIT = 10
 MEMORY_STORE_LIMIT = 50
@@ -49,6 +49,8 @@ talk_to 的 target 必須是同地點、且沒有在移動的另一位居民 id�
 stay 的 target 必須是空字串。
 沒有要說的話時，say 必須是空字串。
 thought 只寫一句內心話。
+想見的人不在這裡時，可以根據記憶去他可能在的地方找他。
+不要重複上一次的想法，想法要反映現在的處境。
 """
 
 
@@ -71,6 +73,8 @@ class Resident:
     state: str = "idle"
     target_location: str = "home"
     idle_minutes: int = 0
+    minutes_here: int = 0
+    last_thought: str = ""
     memories: deque[str] = field(
         default_factory=lambda: deque(maxlen=MEMORY_STORE_LIMIT)
     )
@@ -299,6 +303,8 @@ def build_messages(
         f"其他居民：{roster}\n"
         f"同地點、沒有在移動的人：{here}\n"
         f"地點 id：home、cafe、office、park\n"
+        f"上一次的想法：{actor.last_thought or '（還沒有）'}\n"
+        f"你已經在 {actor.location} 待了 {actor.minutes_here} 分鐘。\n"
         f"最近的記憶：\n{memory_text}"
     )
     return [
@@ -340,6 +346,19 @@ def request_decision(
         stats.total_seconds += time.perf_counter() - started
 
 
+def _overhear(
+    actor: Resident,
+    by_id: dict[str, Resident],
+    time_str: str,
+    say: str,
+) -> None:
+    utterance = say.strip()
+    if not utterance:
+        return
+    for other in people_here(actor, list(by_id.values())):
+        other.remember(time_str, f"聽到 {actor.name} 說：{utterance}")
+
+
 def apply_decision(
     actor: Resident,
     decision: Decision,
@@ -350,18 +369,24 @@ def apply_decision(
     is_reply: bool,
     partner: str | None,
 ) -> str | None:
+    actor.last_thought = decision.thought.strip()
+    # Speak while still present, then leave. Non-talk say does not schedule a reply.
+    _overhear(actor, by_id, time_str, decision.say)
     if decision.action == "move_to" and decision.target == actor.location:
         actor.state = "idle"
         actor.idle_minutes = 0
-        actor.remember(time_str, f"人已經在 {actor.location}，留下")
         if is_reply:
             dialogue.abandon(actor.id, partner)
         return "已在當地，改為停留"
     if decision.action == "move_to":
-        actor.target_location = decision.target
+        company = people_here(actor, list(by_id.values()))
+        destination = decision.target
+        actor.target_location = destination
         actor.state = "walking"
         actor.idle_minutes = 0
-        actor.remember(time_str, f"決定前往 {decision.target}")
+        actor.remember(time_str, f"決定前往 {destination}")
+        for other in company:
+            other.remember(time_str, f"看到 {actor.name} 離開，往 {destination} 去")
         if is_reply:
             dialogue.abandon(actor.id, partner)
         return None
@@ -370,7 +395,6 @@ def apply_decision(
         utterance = decision.say.strip()
         if utterance:
             actor.remember(time_str, f"我對 {other.name} 說：{utterance}")
-            other.remember(time_str, f"聽到 {actor.name} 說：{utterance}")
         else:
             actor.remember(time_str, f"想跟 {other.name} 說話，但沒說出內容")
         actor.state = "idle"
@@ -379,7 +403,6 @@ def apply_decision(
     actor.state = "idle"
     actor.target_location = actor.location
     actor.idle_minutes = 0
-    actor.remember(time_str, "決定留下")
     if is_reply:
         dialogue.abandon(actor.id, partner)
     return None
@@ -433,6 +456,7 @@ def step_resident(resident: Resident) -> bool:
         resident.location = resident.target_location
         resident.state = "idle"
         resident.idle_minutes = 0
+        resident.minutes_here = 0
         return True
     resident.position = step_towards(
         resident.position,
@@ -570,7 +594,10 @@ def run_town(
             dialogue.reply_next = {}
             dialogue.ended.clear()
             for resident in residents:
-                if resident.state == "idle" and resident.id not in decided:
+                if resident.state != "idle":
+                    continue
+                resident.minutes_here += 1
+                if resident.id not in decided:
                     resident.idle_minutes += 1
             _day, time_str = advance_clock(1, time_str, 1)
         stats.memories = {

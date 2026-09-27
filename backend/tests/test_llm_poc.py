@@ -140,7 +140,35 @@ def test_consecutive_dialogue_stops_at_six(tmp_path: Path) -> None:
     assert "連續對話已達 6 句，結束" in text
 
 
-def test_memories_start_with_game_time(tmp_path: Path) -> None:
+def test_move_to_say_and_departure_are_remembered(tmp_path: Path) -> None:
+    def fake(messages: list[dict[str, str]]) -> str:
+        name, _clock = _actor_and_time(messages)
+        if name == "Alex":
+            return _decision("move_to", "cafe", "我先去咖啡店", "換個地方")
+        return _decision("stay", thought="先留下")
+
+    stats = run_town(
+        start="08:00",
+        end="08:01",
+        client=fake,
+        output_path=tmp_path / "leave.md",
+        echo=False,
+    )
+    heard = "[08:00] 聽到 Alex 說：我先去咖啡店"
+    left = "[08:00] 看到 Alex 離開，往 cafe 去"
+    for resident_id in ("mina", "rin"):
+        memories = stats.memories[resident_id]
+        assert heard in memories
+        assert left in memories
+        assert memories.index(heard) < memories.index(left)
+        for item in memories:
+            assert _MEMORY_STAMP.match(item)
+    assert heard not in stats.memories["alex"]
+    assert "[08:00] 決定前往 cafe" in stats.memories["alex"]
+    assert not any("決定留下" in item for item in stats.memories["mina"])
+
+
+def test_stay_does_not_write_memory(tmp_path: Path) -> None:
     def fake(_messages: list[dict[str, str]]) -> str:
         return _decision("stay", thought="先留下")
 
@@ -148,14 +176,33 @@ def test_memories_start_with_game_time(tmp_path: Path) -> None:
         start="08:00",
         end="08:01",
         client=fake,
-        output_path=tmp_path / "memory.md",
+        output_path=tmp_path / "stay.md",
         echo=False,
     )
-    assert stats.memories["mina"]
-    assert stats.memories["alex"]
-    assert stats.memories["rin"]
-    for items in stats.memories.values():
-        assert items
-        for item in items:
-            assert _MEMORY_STAMP.match(item)
-    assert any(item.startswith("[08:00] ") for item in stats.memories["mina"])
+    assert stats.memories == {"mina": (), "alex": (), "rin": ()}
+
+
+def test_prompt_includes_minutes_here_and_last_thought(tmp_path: Path) -> None:
+    prompts: list[str] = []
+
+    def fake(messages: list[dict[str, str]]) -> str:
+        user = messages[-1]["content"]
+        prompts.append(user)
+        name, clock = _actor_and_time(messages)
+        if name == "Mina" and clock == "08:00":
+            return _decision("stay", thought="今天想去公園")
+        return _decision("stay", thought="再等等")
+
+    run_town(
+        start="08:00",
+        end="08:17",
+        client=fake,
+        output_path=tmp_path / "prompt.md",
+        echo=False,
+    )
+    mina_prompts = [text for text in prompts if "你是 Mina" in text]
+    assert len(mina_prompts) >= 2
+    assert "上一次的想法：（還沒有）" in mina_prompts[0]
+    assert "你已經在 home 待了 0 分鐘" in mina_prompts[0]
+    assert "上一次的想法：今天想去公園" in mina_prompts[1]
+    assert re.search(r"你已經在 home 待了 [1-9]\d* 分鐘", mina_prompts[1])
