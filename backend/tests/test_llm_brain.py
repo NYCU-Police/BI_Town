@@ -248,6 +248,9 @@ def test_system_prompt_tells_them_to_stop_repeating() -> None:
     assert end_talk in system
     assert "不要重複自己說過的話，也不要照搬別人說過的話" in system
     assert "你已經在某地點時，不要邀請別人去同一個地點" in system
+    reply_first = "有人對你說話而你還沒回應時，優先回應對方，除非你的個性讓你刻意不理"
+    assert reply_first in system
+    assert "這個世界沒有手機或訊息，只能當面說話" in system
 
 
 def test_similar_say_retries_then_stays_silent() -> None:
@@ -301,7 +304,7 @@ def test_pair_cooldown_rejects_talk_then_allows_it() -> None:
         say = lines[cursor["i"]]
         cursor["i"] += 1
         other = "rin" if actor == "alex" else "alex"
-        return _decision("talk_to", other, say, "想說話")
+        return _decision("talk_to", other, say, say)
 
     world = World(brain_mode="llm", decider=fake)
     assert world.llm is not None
@@ -353,3 +356,219 @@ def test_pair_cooldown_rejects_talk_then_allows_it() -> None:
     assert len(resumed) == 1
     assert resumed[0].target_agent_id == "rin"
     assert resumed[0].content == "冷卻結束後換話題"
+
+
+def test_situation_prompt_shows_company_unanswered_and_last_seen() -> None:
+    prompts: list[str] = []
+    question = "你今天要去公園嗎"
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        actor = _actor_id(messages)
+        if actor == "alex":
+            prompts.append(_user_text(messages))
+        if actor == "rin":
+            return _decision("talk_to", "alex", question, "想問他")
+        return SILENT
+
+    world = World(brain_mode="llm", decider=fake)
+    assert world.llm is not None
+    world.tick()
+    _drain(world)
+    world.tick()
+    for agent_id in ("alex", "mina"):
+        resident = world.llm.by_id[agent_id]
+        resident.location = "park"
+        resident.target_location = "park"
+        resident.state = "idle"
+        resident.minutes_here = 8
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+
+    prompt = prompts[-1]
+    assert prompt.startswith("目前狀況：")
+    assert prompt.index("目前狀況") < prompt.index("最近的記憶")
+    assert "你在 park（公園），已經待了 8 分鐘。" in prompt
+    assert "Mina 就在你身邊。" in prompt
+    assert "這裡只有你" not in prompt
+    assert f"Rin 對你說：『{question}』（你還沒回應）" in prompt
+    assert "你最後看到 Mina 是在 park（公園）。" in prompt
+    assert "你最後看到 Rin 是在 home（家）。" in prompt
+
+    world.llm.waiting.discard("alex")
+    world.llm.now_minutes += 31
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    assert "你還沒回應" not in prompts[-1]
+    assert "沒有人在等你回應。" in prompts[-1]
+
+
+def test_repeated_thought_retries() -> None:
+    calls: list[list[dict[str, str]]] = []
+    first = "她怎麼還沒到公園"
+    echo = "她怎麼還沒到公園啊"
+    reason = "你已經想過類似的事，請重新思考。"
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        if _actor_id(messages) != "alex":
+            return SILENT
+        calls.append(messages)
+        thought = first if len(calls) == 1 else echo
+        return _decision("stay", say="", thought=thought)
+
+    world = World(brain_mode="llm", decider=fake)
+    assert world.llm is not None
+    world.tick()
+    _drain(world)
+    world.tick()
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    result = world.tick()
+
+    assert len(calls) == 3
+    assert reason in calls[2][-1]["content"]
+    thoughts = [
+        event
+        for event in result.events
+        if event.event == "thought" and event.agent_id == "alex"
+    ]
+    assert thoughts == []
+
+
+def test_llm_think_flag_is_sent_to_ollama(monkeypatch) -> None:
+    from app.simulation.llm_session import OllamaDecider
+
+    captured: list[dict] = []
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"message": {"content": SILENT}}
+
+    class _Client:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            return None
+
+        async def __aenter__(self) -> "_Client":
+            return self
+
+        async def __aexit__(self, *exc: object) -> bool:
+            return False
+
+        async def post(self, url: str, json: dict) -> _Response:
+            captured.append(json)
+            return _Response()
+
+    monkeypatch.setattr("app.simulation.llm_session.httpx.AsyncClient", _Client)
+
+    async def ask() -> None:
+        decider = OllamaDecider.from_env()
+        await decider([{"role": "user", "content": "hi"}], {"type": "object"})
+
+    monkeypatch.delenv("LLM_THINK", raising=False)
+    asyncio.run(ask())
+    monkeypatch.setenv("LLM_THINK", "true")
+    asyncio.run(ask())
+    monkeypatch.setenv("LLM_THINK", "false")
+    asyncio.run(ask())
+
+    assert [body["think"] for body in captured] == [False, True, False]
+
+
+def test_departure_sighting_is_replaced_when_met_again() -> None:
+    from app.models.schemas import Position
+    from app.simulation.poi import POIS
+
+    prompts: list[str] = []
+    leave = {"ready": False}
+    left = "你最後看到 Mina 從 park（公園）離開，往 office（辦公室）去。"
+    met = "你最後看到 Mina 是在 office（辦公室）。"
+
+    async def fake(messages: list[dict[str, str]], _schema: dict) -> str:
+        actor = _actor_id(messages)
+        if actor == "alex":
+            prompts.append(_user_text(messages))
+        if actor == "mina" and leave["ready"]:
+            leave["ready"] = False
+            return _decision("move_to", "office", say="", thought="換去辦公室")
+        return SILENT
+
+    world = World(brain_mode="llm", decider=fake)
+    assert world.llm is not None
+    world.tick()
+    _drain(world)
+    world.tick()
+
+    park = POIS["park"]
+    for agent_id in ("mina", "alex"):
+        resident = world.llm.by_id[agent_id]
+        resident.location = "park"
+        resident.target_location = "park"
+        resident.state = "idle"
+        resident.position = Position(x=park.x, y=park.y)
+    leave["ready"] = True
+    world.llm.waiting.discard("mina")
+    world.llm._request(
+        world.llm.by_id["mina"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    world.tick()
+
+    world.llm.waiting.discard("alex")
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    assert left in prompts[-1]
+
+    office = POIS["office"]
+    alex = world.llm.by_id["alex"]
+    alex.location = "office"
+    alex.target_location = "office"
+    alex.state = "idle"
+    alex.position = Position(x=office.x, y=office.y)
+    arrived = False
+    for _ in range(30):
+        world.tick()
+        _drain(world)
+        mina = world.llm.by_id["mina"]
+        if mina.state == "idle" and mina.location == "office":
+            arrived = True
+            break
+    assert arrived
+
+    world.llm.waiting.discard("alex")
+    world.llm._request(
+        world.llm.by_id["alex"],
+        world.time,
+        is_reply=False,
+        partner=None,
+    )
+    _drain(world)
+    assert met in prompts[-1]
+    assert left not in prompts[-1]
+    sight = alex.last_seen["mina"]
+    assert sight.place == "office"
+    assert not sight.destination

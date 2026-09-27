@@ -24,6 +24,7 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       LLM_MODEL: ${LLM_MODEL:-qwen3:14b}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+      LLM_THINK: ${LLM_THINK:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

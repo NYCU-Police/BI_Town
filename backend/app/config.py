@@ -34,12 +34,20 @@ def current_brain_mode() -> str:
     return "rules"
 
 
+def current_llm_think() -> bool:
+    """Ollama think mode. Off unless the host explicitly opts in."""
+    raw = os.environ.get("LLM_THINK", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 LLM_IDLE_DECISION_MINUTES = 15
 LLM_MAX_CONSECUTIVE_DIALOGUE = 4
 LLM_DIALOGUE_COOLDOWN_MINUTES = 30
 LLM_RECENT_SAY_LIMIT = 5
 LLM_RECENT_SAY_PROMPT_LIMIT = 3
+LLM_RECENT_THOUGHT_LIMIT = 3
 LLM_SAY_SIMILARITY = 0.8
+LLM_UNANSWERED_MINUTES = 30
 LLM_MEMORY_PROMPT_LIMIT = 10
 LLM_MEMORY_STORE_LIMIT = 50
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"

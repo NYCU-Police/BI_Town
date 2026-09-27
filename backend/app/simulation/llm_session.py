@@ -30,8 +30,11 @@ from app.config import (
     LLM_MEMORY_STORE_LIMIT,
     LLM_RECENT_SAY_LIMIT,
     LLM_RECENT_SAY_PROMPT_LIMIT,
+    LLM_RECENT_THOUGHT_LIMIT,
     LLM_SAY_SIMILARITY,
     LLM_TEMPERATURE,
+    LLM_UNANSWERED_MINUTES,
+    current_llm_think,
 )
 from app.models.schemas import Agent, Position, WorldEvent
 from app.simulation.fake_agent import move_agent
@@ -55,6 +58,8 @@ thought 只寫一句內心話。
 對話沒有新內容、或對方重複同樣的話時，就結束對話：去別的地方或做自己的事。
 不要重複自己說過的話，也不要照搬別人說過的話。
 你已經在某地點時，不要邀請別人去同一個地點。
+有人對你說話而你還沒回應時，優先回應對方，除非你的個性讓你刻意不理。
+這個世界沒有手機或訊息，只能當面說話。
 """
 
 PLACE_LABELS = {
@@ -64,6 +69,20 @@ PLACE_LABELS = {
     "park": "公園",
 }
 REPEAT_SAY = "你已經說過類似的話，請說新的內容，或結束對話去做別的事"
+REPEAT_THOUGHT = "你已經想過類似的事，請重新思考。"
+
+
+@dataclass
+class DirectedLine:
+    speaker_id: str
+    text: str
+    minute: int
+
+
+@dataclass
+class Sighting:
+    place: str
+    destination: str = ""
 
 
 class Decision(BaseModel):
@@ -93,6 +112,11 @@ class Resident:
     recent_says: deque[str] = field(
         default_factory=lambda: deque(maxlen=LLM_RECENT_SAY_LIMIT)
     )
+    recent_thoughts: deque[str] = field(
+        default_factory=lambda: deque(maxlen=LLM_RECENT_THOUGHT_LIMIT)
+    )
+    heard: list[DirectedLine] = field(default_factory=list)
+    last_seen: dict[str, Sighting] = field(default_factory=dict)
 
     def remember(self, time_str: str, item: str) -> None:
         self.memories.append(f"[{time_str}] {item}")
@@ -214,10 +238,18 @@ def spawn_residents() -> list[Resident]:
 class OllamaDecider:
     """One Ollama /api/chat call. The worker never runs two of these at once."""
 
-    def __init__(self, base_url: str, model: str, timeout: float) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        timeout: float,
+        *,
+        think: bool = False,
+    ) -> None:
         self._url = base_url.rstrip("/") + "/api/chat"
         self._model = model
         self._timeout = timeout
+        self._think = think
 
     @classmethod
     def from_env(cls) -> OllamaDecider:
@@ -234,6 +266,7 @@ class OllamaDecider:
             base_url=base_url or DEFAULT_OLLAMA_URL,
             model=model or DEFAULT_LLM_MODEL,
             timeout=timeout,
+            think=current_llm_think(),
         )
 
     async def __call__(
@@ -248,7 +281,7 @@ class OllamaDecider:
                     "model": self._model,
                     "messages": messages,
                     "stream": False,
-                    "think": False,
+                    "think": self._think,
                     "format": schema,
                     "options": {"temperature": LLM_TEMPERATURE},
                 },
@@ -332,15 +365,23 @@ def label_places(text: str) -> str:
     return labeled
 
 
-def repeated_say(actor: Resident, say: str) -> str | None:
-    utterance = say.strip()
+def _too_similar(text: str, previous: list[str], reason: str) -> str | None:
+    utterance = text.strip()
     if not utterance:
         return None
-    for previous in actor.recent_says:
-        ratio = SequenceMatcher(None, utterance, previous).ratio()
+    for earlier in previous:
+        ratio = SequenceMatcher(None, utterance, earlier).ratio()
         if ratio >= LLM_SAY_SIMILARITY:
-            return REPEAT_SAY
+            return reason
     return None
+
+
+def repeated_say(actor: Resident, say: str) -> str | None:
+    return _too_similar(say, list(actor.recent_says), REPEAT_SAY)
+
+
+def repeated_thought(actor: Resident, thought: str) -> str | None:
+    return _too_similar(thought, list(actor.recent_thoughts), REPEAT_THOUGHT)
 
 
 def people_here(actor: Resident, residents: list[Resident]) -> list[Resident]:
@@ -355,10 +396,58 @@ def people_here(actor: Resident, residents: list[Resident]) -> list[Resident]:
     return others
 
 
+def situation_text(
+    actor: Resident,
+    residents: list[Resident],
+    now_minutes: int,
+) -> str:
+    lines = [
+        f"你在 {place_name(actor.location)}，已經待了 {actor.minutes_here} 分鐘。",
+    ]
+    company = people_here(actor, residents)
+    if company:
+        for other in company:
+            lines.append(f"{other.name} 就在你身邊。")
+    else:
+        lines.append("這裡只有你。")
+    names = {resident.id: resident.name for resident in residents}
+    pending = [
+        line
+        for line in actor.heard
+        if now_minutes - line.minute <= LLM_UNANSWERED_MINUTES
+    ]
+    if pending:
+        for line in pending:
+            speaker = names.get(line.speaker_id, line.speaker_id)
+            lines.append(f"{speaker} 對你說：『{line.text}』（你還沒回應）")
+    else:
+        lines.append("沒有人在等你回應。")
+    company_ids = {other.id for other in company}
+    others = [resident for resident in residents if resident.id != actor.id]
+    others.sort(key=lambda resident: resident.id)
+    for other in others:
+        if other.id in company_ids:
+            lines.append(f"你最後看到 {other.name} 是在 {place_name(actor.location)}。")
+            continue
+        seen = actor.last_seen.get(other.id)
+        if seen is None:
+            lines.append(f"你還沒看到 {other.name}。")
+        elif seen.destination:
+            origin = place_name(seen.place)
+            dest = place_name(seen.destination)
+            lines.append(
+                f"你最後看到 {other.name} 從 {origin}離開，往 {dest}去。"
+            )
+        else:
+            lines.append(f"你最後看到 {other.name} 是在 {place_name(seen.place)}。")
+    return "\n".join(f"- {line}" for line in lines)
+
+
 def build_messages(
     actor: Resident,
     time_str: str,
     residents: list[Resident],
+    now_minutes: int = 0,
 ) -> list[dict[str, str]]:
     roster = "、".join(
         f"{other.id}（{other.name}）" for other in residents if other.id != actor.id
@@ -380,7 +469,9 @@ def build_messages(
         spoken_text = "- （還沒說過）"
     places = "、".join(place_name(poi_id) for poi_id in POIS)
     here_label = place_name(actor.location)
+    situation = situation_text(actor, residents, now_minutes)
     user = (
+        f"目前狀況：\n{situation}\n\n"
         f"你是 {actor.name}（id: {actor.id}）。\n"
         f"{actor.persona}\n\n"
         f"現在是 {time_str}，你在 {here_label}。\n"
@@ -404,6 +495,9 @@ def validate_decision(
     by_id: dict[str, Resident],
 ) -> str | None:
     echo = repeated_say(actor, decision.say)
+    if echo is not None:
+        return echo
+    echo = repeated_thought(actor, decision.thought)
     if echo is not None:
         return echo
     if decision.action == "move_to" and decision.target not in POIS:
@@ -442,6 +536,7 @@ class LlmSession:
         self.inbox: list[ReadyDecision] = []
         self.waiting: set[str] = set()
         self.decider = decider
+        self.now_minutes = 0
 
     def advance(self, time_str: str) -> tuple[list[WorldEvent], set[str]]:
         """Apply finished thoughts, walk, and enqueue. Does not call the model."""
@@ -469,6 +564,7 @@ class LlmSession:
             if resident.id not in applied:
                 resident.idle_minutes += 1
         self.dialogue.tick_cooldowns()
+        self.now_minutes += GAME_MINUTES_PER_TICK
         return events, changed
 
     def _apply(
@@ -502,9 +598,11 @@ class LlmSession:
         job: DecisionJob,
     ) -> list[WorldEvent]:
         events: list[WorldEvent] = []
+        self._observe(actor)
         actor.last_thought = decision.thought.strip()
         thought = actor.last_thought
         if thought:
+            actor.recent_thoughts.append(thought)
             events.append(
                 WorldEvent(
                     timestamp=time_str,
@@ -554,6 +652,7 @@ class LlmSession:
             actor.idle_minutes = 0
             actor.remember(time_str, f"決定前往 {destination}")
             for other in company:
+                other.last_seen[actor.id] = Sighting(actor.location, destination)
                 other.remember(
                     time_str, f"看到 {actor.name} 離開，往 {destination} 去"
                 )
@@ -562,6 +661,17 @@ class LlmSession:
             return events
         if decision.action == "talk_to":
             other = self.by_id[decision.target]
+            actor.heard = [
+                line for line in actor.heard if line.speaker_id != other.id
+            ]
+            if say:
+                other.heard.append(
+                    DirectedLine(
+                        speaker_id=actor.id,
+                        text=say,
+                        minute=self.now_minutes,
+                    )
+                )
             if say:
                 actor.remember(time_str, f"我對 {other.name} 說：{say}")
             else:
@@ -616,7 +726,13 @@ class LlmSession:
             arrivals.add(resident.id)
         return arrivals
 
+    def _observe(self, actor: Resident) -> None:
+        for other in people_here(actor, self.residents):
+            actor.last_seen[other.id] = Sighting(actor.location)
+            other.last_seen[actor.id] = Sighting(actor.location)
+
     def _note_arrival(self, actor: Resident, time_str: str) -> None:
+        self._observe(actor)
         company = people_here(actor, self.residents)
         if company:
             seen = "、".join(other.name for other in company)
@@ -677,7 +793,12 @@ class LlmSession:
         self.queue.put_nowait(
             DecisionJob(
                 agent_id=resident.id,
-                messages=build_messages(resident, time_str, self.residents),
+                messages=build_messages(
+                    resident,
+                    time_str,
+                    self.residents,
+                    self.now_minutes,
+                ),
                 is_reply=is_reply,
                 partner=partner,
             )
