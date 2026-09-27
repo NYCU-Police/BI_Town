@@ -301,7 +301,7 @@ func _format_event(data: Dictionary) -> String:
 		return "[font_size=12]%s[/font_size]" % _join_header([
 			_tone(timestamp, _MOVE_COLOR),
 			name,
-			_tone("在 %s %s" % [place, task], _MOVE_COLOR),
+			_tone("在%s %s" % [place, task], _MOVE_COLOR),
 		])
 	if action == "thought":
 		var header := _join_header([_tone(timestamp, _THOUGHT_COLOR), name])
