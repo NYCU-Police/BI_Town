@@ -1,0 +1,28 @@
+RPG Urban Pack (1.0) by Kenney (www.kenney.nl)
+
+Source: https://kenney.nl/assets/rpg-urban-pack
+License: Creative Commons Zero (CC0) 1.0
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Created/distributed by Kenney (www.kenney.nl).
+Creation date: 05-01-2019.
+Attribution is not required. If credited, use "Kenney" or www.kenney.nl.
+
+tilemap.png is Tilemap/tilemap.png from that pack.
+Tiles are 16×16 with 1px spacing and no margin.
+Roads, sidewalks, grass, buildings, trees, benches, lamps,
+and flower beds all come from this sheet.
+
+The pack includes people, but their clothes and hair are too similar
+to tell three residents apart. Mina, Alex, and Rin stay on the
+Kenney Roguelike Characters sprites in assets/characters/
+(also CC0; see that folder's LICENSE.txt). Those sprites are 16×16
+and are drawn at 1× so a person is the same height as a door tile.
+
+Original pack notice:
+
+License: (Creative Commons Zero, CC0)
+http://creativecommons.org/publicdomain/zero/1.0/
+
+This content is free to use in personal, educational and commercial projects.
+Support us by crediting Kenney or www.kenney.nl (this is not mandatory)

@@ -56,3 +56,51 @@ DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_LLM_MODEL = "qwen3:14b"
 DEFAULT_LLM_TIMEOUT_SECONDS = 60.0
 LLM_TEMPERATURE = 0.8
+
+NEED_MAX = 100.0
+NEED_START_ENERGY = 80.0
+NEED_START_FULLNESS = 70.0
+NEED_START_SOCIAL = 65.0
+ENERGY_DECAY_PER_MINUTE = 0.05
+FULLNESS_DECAY_PER_MINUTE = 0.08
+SOCIAL_DECAY_PER_MINUTE = 0.04
+EAT_FULLNESS_RESTORE = 35.0
+SLEEP_ENERGY_PER_MINUTE = 0.25
+REST_ENERGY_PER_MINUTE = 0.08
+TALK_SOCIAL_RESTORE = 12.0
+NEED_TIRED = 55.0
+NEED_EXHAUSTED = 30.0
+NEED_PECKISH = 55.0
+NEED_HUNGRY = 30.0
+NEED_LONELY_HINT = 55.0
+NEED_LONELY = 30.0
+SLEEP_HOUR = 22
+WAKE_HOUR = 7
+PLAN_MIN_ITEMS = 4
+PLAN_MAX_ITEMS = 6
+REVIEW_HISTORY_DAYS = 3
+EATING_ACTIVITIES = frozenset({"cook", "order_coffee", "shop"})
+RESTING_ACTIVITIES = frozenset({"rest"})
+SLEEPING_ACTIVITIES = frozenset({"sleep"})
+
+# How long a place activity keeps a resident from making a new decision.
+ACTIVITY_MINUTES = {
+    "order_coffee": 10,
+    "read_book": 25,
+    "chat_staff": 10,
+    "write_report": 40,
+    "sort_accounts": 25,
+    "meeting": 30,
+    "shelve_books": 20,
+    "borrow_book": 10,
+    "study": 40,
+    "shop": 10,
+    "stroll": 20,
+    "sit_bench": 15,
+    "take_photo": 20,
+    "read_board": 10,
+    "wander": 15,
+    "cook": 30,
+    "rest": 20,
+    "sleep": 60,
+}

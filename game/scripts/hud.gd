@@ -15,6 +15,7 @@ var _web_health_callback: Variant
 
 
 func _ready() -> void:
+	_event_log.meta_clicked.connect(_on_log_meta)
 	set_connection(false)
 	_title_label.text = "BI_Town"
 	_render_identity(_read_local_frontend_commit(), "", "", false)
@@ -223,6 +224,17 @@ func _remember_agent(agent: Dictionary) -> void:
 	_agent_names[agent_id] = str(agent.get("name", agent_id))
 
 
+const _PLACE_NAMES := {
+	"mina_home": "Mina 的家",
+	"alex_home": "Alex 的家",
+	"rin_home": "Rin 的家",
+	"cafe": "咖啡廳",
+	"store": "便利商店",
+	"office": "辦公室",
+	"library": "圖書館",
+	"plaza": "廣場",
+	"park": "公園",
+}
 const _NAME_COLORS := {
 	"mina": "#e8737a",
 	"alex": "#59b8c7",
@@ -247,7 +259,19 @@ func _escape_bbcode(line: String) -> String:
 func _colored_name(agent_id: String) -> String:
 	var agent_name := str(_agent_names.get(agent_id, agent_id.capitalize()))
 	var color := str(_NAME_COLORS.get(agent_id, "#d9d9d4"))
-	return "[color=%s]%s[/color]" % [color, _escape_bbcode(agent_name)]
+	return "[url=%s][color=%s]%s[/color][/url]" % [
+		agent_id,
+		color,
+		_escape_bbcode(agent_name),
+	]
+
+
+func _place_label(poi_id: String) -> String:
+	return str(_PLACE_NAMES.get(poi_id, poi_id))
+
+
+func _on_log_meta(meta: Variant) -> void:
+	get_tree().call_group("town_camera", "focus_agent", str(meta))
 
 
 func _tone(text: String, color: String) -> String:
@@ -271,12 +295,20 @@ func _format_event(data: Dictionary) -> String:
 				_colored_name(target_id),
 			])
 		return header + "\n" + _tone("「%s」" % content, _SAID_COLOR)
+	if action == "activity":
+		var place := _place_label(str(data.get("location", "")))
+		var task := str(data.get("content", ""))
+		return "[font_size=12]%s[/font_size]" % _join_header([
+			_tone(timestamp, _MOVE_COLOR),
+			name,
+			_tone("在%s %s" % [place, task], _MOVE_COLOR),
+		])
 	if action == "thought":
 		var header := _join_header([_tone(timestamp, _THOUGHT_COLOR), name])
 		header += _tone("（想）", _THOUGHT_COLOR)
 		return header + "\n" + _tone(str(data.get("content", "")), _THOUGHT_COLOR)
-	var location := str(data.get("location", "")).capitalize()
-	var verb := "抵達" if action == "entered" else "前往"
+	var location := _place_label(str(data.get("location", "")))
+	var verb := "抵達" if action == "entered" else "離開"
 	return "[font_size=12]%s[/font_size]" % _join_header([
 		_tone(timestamp, _MOVE_COLOR),
 		name,

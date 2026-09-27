@@ -101,6 +101,7 @@ def test_agents() -> None:
             "location",
             "target_location",
             "state",
+            "activity",
         }
         assert set(agent["position"].keys()) == {"x", "y"}
         assert isinstance(agent["position"]["x"], (int, float))
@@ -123,5 +124,5 @@ def test_events_reflect_simulation() -> None:
         "timestamp": "08:00",
         "agent_id": "mina",
         "event": "left",
-        "location": "home",
+        "location": "mina_home",
     }

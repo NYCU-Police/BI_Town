@@ -5,7 +5,7 @@ import math
 
 from app.config import AGENT_SPEED_PER_TICK, ARRIVAL_DISTANCE_THRESHOLD
 from app.models.schemas import Agent, Position, WorldEvent
-from app.simulation.poi import POIS
+from app.simulation.poi import POIS, home_for
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,14 @@ def distance(a: Position, b: Position) -> float:
 def destination_at(agent_id: str, time: str) -> str | None:
     for scheduled_time, dest in SCHEDULES.get(agent_id, []):
         if scheduled_time == time:
-            return dest
+            return _resolve_destination(agent_id, dest)
     return None
+
+
+def _resolve_destination(agent_id: str, dest: str) -> str:
+    if dest == "home":
+        return home_for(agent_id).id
+    return dest
 
 
 def step_towards(position: Position, target: Position, speed: float) -> Position:

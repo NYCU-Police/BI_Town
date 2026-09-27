@@ -35,7 +35,7 @@ def _actor_and_time(messages: list[dict[str, str]]) -> tuple[str, str]:
 
 def test_fake_llm_runs_one_game_hour_without_network(tmp_path: Path) -> None:
     calls = {"n": 0}
-    targets = ("cafe", "office", "park", "home")
+    targets = ("cafe", "office", "park", "plaza")
 
     def fake(_messages: list[dict[str, str]]) -> str:
         calls["n"] += 1
@@ -112,6 +112,7 @@ def test_listener_decides_on_the_next_minute(tmp_path: Path) -> None:
         client=fake,
         output_path=tmp_path / "reply.md",
         echo=False,
+        meet="mina_home",
     )
     mina_times = [clock for name, clock in seen if name == "Mina"]
     assert mina_times == ["08:00", "08:01"]
@@ -133,6 +134,7 @@ def test_consecutive_dialogue_stops_at_six(tmp_path: Path) -> None:
         client=fake,
         output_path=output,
         echo=False,
+        meet="mina_home",
     )
     text = output.read_text(encoding="utf-8")
     assert text.count("動作：talk_to") == MAX_CONSECUTIVE_DIALOGUE
@@ -153,6 +155,7 @@ def test_move_to_say_and_departure_are_remembered(tmp_path: Path) -> None:
         client=fake,
         output_path=tmp_path / "leave.md",
         echo=False,
+        meet="mina_home",
     )
     heard = "[08:00] 聽到 Alex 說：我先去咖啡店"
     left = "[08:00] 看到 Alex 離開，往 cafe 去"
@@ -203,6 +206,6 @@ def test_prompt_includes_minutes_here_and_last_thought(tmp_path: Path) -> None:
     mina_prompts = [text for text in prompts if "你是 Mina" in text]
     assert len(mina_prompts) >= 2
     assert "上一次的想法：（還沒有）" in mina_prompts[0]
-    assert "你已經在 home 待了 0 分鐘" in mina_prompts[0]
+    assert "你已經在 mina_home 待了 0 分鐘" in mina_prompts[0]
     assert "上一次的想法：今天想去公園" in mina_prompts[1]
-    assert re.search(r"你已經在 home 待了 [1-9]\d* 分鐘", mina_prompts[1])
+    assert re.search(r"你已經在 mina_home 待了 [1-9]\d* 分鐘", mina_prompts[1])

@@ -1,11 +1,43 @@
 extends Node2D
 
-## Must match backend/app/simulation/poi.py
+## Must match backend/app/simulation/poi.py. These points are the ground
+## in front of each door, so an idle resident stands on them as-is.
 const POIS := {
-	"home": Vector2(100, 100),
-	"cafe": Vector2(400, 250),
-	"office": Vector2(700, 150),
-	"park": Vector2(500, 500),
+	"mina_home": Vector2(72, 112),
+	"alex_home": Vector2(232, 112),
+	"rin_home": Vector2(392, 112),
+	"cafe": Vector2(584, 112),
+	"store": Vector2(808, 112),
+	"office": Vector2(72, 336),
+	"library": Vector2(232, 336),
+	"plaza": Vector2(584, 336),
+	"park": Vector2(808, 480),
+}
+
+const PLACE_NAMES := {
+	"mina_home": "Mina 的家",
+	"alex_home": "Alex 的家",
+	"rin_home": "Rin 的家",
+	"cafe": "咖啡廳",
+	"store": "便利商店",
+	"office": "辦公室",
+	"library": "圖書館",
+	"plaza": "廣場",
+	"park": "公園",
+}
+
+## North-row places sit under a roof, so the label goes above that roof.
+## South-row places extend downward; the label stays above the door.
+const _LABEL_Y := {
+	"mina_home": -100.0,
+	"alex_home": -100.0,
+	"rin_home": -100.0,
+	"cafe": -100.0,
+	"store": -100.0,
+	"office": -60.0,
+	"library": -60.0,
+	"plaza": -60.0,
+	"park": -60.0,
 }
 
 @export var npc_scene: PackedScene
@@ -14,19 +46,30 @@ var _npcs: Dictionary = {}
 
 
 func _ready() -> void:
-	var node_names := {
-		"home": "Home",
-		"cafe": "Cafe",
-		"office": "Office",
-		"park": "Park",
-	}
+	texture_filter = TEXTURE_FILTER_NEAREST
+	var pois_root := get_node_or_null("POIs")
+	if pois_root == null:
+		push_error("World is missing the POIs node")
+		return
+	for child in pois_root.get_children():
+		child.queue_free()
 	for poi_id in POIS:
-		var node := get_node_or_null("POIs/%s" % node_names[poi_id])
-		if node == null:
-			push_error("Missing POI node for %s" % poi_id)
-			continue
-		if node.position != POIS[poi_id]:
-			push_error("POI %s is at %s, backend expects %s" % [poi_id, node.position, POIS[poi_id]])
+		var node := Node2D.new()
+		node.name = poi_id
+		node.position = POIS[poi_id]
+		var label := Label.new()
+		label.text = str(PLACE_NAMES[poi_id])
+		label.position = Vector2(-72, float(_LABEL_Y[poi_id]))
+		label.size = Vector2(144, 22)
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.add_theme_color_override("font_color", Color.WHITE)
+		label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+		label.add_theme_constant_override("outline_size", 4)
+		label.add_theme_font_size_override("font_size", 14)
+		node.add_child(label)
+		pois_root.add_child(node)
 
 
 func apply_snapshot(data: Dictionary) -> void:
@@ -57,6 +100,12 @@ func show_speech(agent_id: String, content: String) -> void:
 	var npc: Node = _npcs[agent_id]
 	if npc.has_method("show_speech"):
 		npc.show_speech(content)
+
+
+func npc_position(agent_id: String) -> Vector2:
+	if not _npcs.has(agent_id):
+		return Vector2.INF
+	return (_npcs[agent_id] as Node2D).global_position
 
 
 func _separate_overlaps(snap: bool) -> void:
@@ -105,30 +154,4 @@ func _upsert_npc(agent: Dictionary, snap: bool) -> void:
 		return
 	npc.update_from_server(agent, snap)
 	if npc.has_method("set_stand_offset"):
-		npc.set_stand_offset(_stand_offset_for(agent), snap)
-
-
-## Display-only. Server coordinates stay on the POI. Idle residents stand
-## on the ground in front of the door tiles (town_map bottom row, columns 1–2).
-func _stand_offset_for(agent: Dictionary) -> Vector2:
-	if str(agent.get("state", "")) != "idle":
-		return Vector2.ZERO
-	var pos_v: Variant = agent.get("position", {})
-	if typeof(pos_v) != TYPE_DICTIONARY:
-		return Vector2.ZERO
-	var coords: Dictionary = pos_v
-	var pos := Vector2(float(coords.get("x", 0.0)), float(coords.get("y", 0.0)))
-	for poi in POIS.values():
-		if pos.distance_to(poi) <= 1.0:
-			return _door_delta(poi)
-	return Vector2.ZERO
-
-
-func _door_delta(poi: Vector2) -> Vector2:
-	var origin_x := int(round(poi.x / 16.0)) - 2
-	var origin_y := int(round(poi.y / 16.0)) - 2
-	var door_x := float(origin_x + 2) * 16.0
-	# Sprite is 48px tall. Keep the body on the ground in front of the door,
-	# with only the top of the head overlapping the doorway.
-	var feet_y := float(origin_y + 4) * 16.0 + 42.0
-	return Vector2(door_x - poi.x, feet_y - poi.y)
+		npc.set_stand_offset(Vector2.ZERO, snap)

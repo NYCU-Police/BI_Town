@@ -14,9 +14,9 @@ const SPRITES := {
 }
 const SPEECH_HOLD_SECONDS := 6.0
 const SPEECH_FADE_SECONDS := 0.4
-## Top of the name plate, just above the 48px sprite. The speech tail sits above this.
-const LABEL_TOP := -68.0
-const SLOT_STEP := 52.0
+## Top of the name plate, just above the 16px sprite. The speech tail sits above this.
+const LABEL_TOP := -36.0
+const SLOT_STEP := 18.0
 const BUBBLE_STACK := 78.0
 const BUBBLE_MAX_WIDTH := 220.0
 const BUBBLE_PAD_X := 10.0
@@ -26,7 +26,7 @@ const TEXT_FONT_SIZE := 14
 const TAIL_HALF_WIDTH := 8.0
 const TAIL_HEIGHT := 10.0
 const NAME_GAP := 2.0
-const SPRITE_Y := -24.0
+const SPRITE_Y := -8.0
 const WALK_FRAME_SECONDS := 0.18
 const IDLE_FRAME_SECONDS := 0.7
 
@@ -42,6 +42,7 @@ var _anim_time: float = 0.0
 
 @onready var _sprite: Sprite2D = $Sprite
 @onready var _label: Label = $Label
+@onready var _activity: Label = $Activity
 @onready var _speech: Node2D = $Speech
 @onready var _bubble: Panel = $Speech/Bubble
 @onready var _tail: Polygon2D = $Speech/Tail
@@ -51,7 +52,7 @@ var _anim_time: float = 0.0
 
 func _ready() -> void:
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_sprite.scale = Vector2(3, 3)
+	_sprite.scale = Vector2.ONE
 	_sprite.position = Vector2(0, SPRITE_Y)
 
 
@@ -72,6 +73,13 @@ func update_from_server(data: Dictionary, snap: bool = false) -> void:
 	var tint: Color = COLORS.get(_agent_id, Color(0.93, 0.93, 0.93))
 	_label.add_theme_color_override("font_color", tint)
 	_sprite.texture = SPRITES.get(_agent_id, SPRITES["mina"])
+	var task := str(data.get("activity", "")).strip_edges()
+	if task.is_empty():
+		_activity.visible = false
+		_activity.text = ""
+	else:
+		_activity.text = "%s中" % task
+		_activity.visible = true
 
 	_place(snap)
 
@@ -199,7 +207,7 @@ func _apply_motion(delta: float, moved: Vector2, goal: Vector2) -> void:
 	var lift := 0.0
 	if traveling:
 		var frame := int(_anim_time / WALK_FRAME_SECONDS) % 2
-		lift = 3.0 if frame == 1 else 0.0
+		lift = 1.0 if frame == 1 else 0.0
 	else:
 		var frame := int(_anim_time / IDLE_FRAME_SECONDS) % 2
 		lift = 1.0 if frame == 1 else 0.0

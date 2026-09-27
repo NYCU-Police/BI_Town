@@ -2,8 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-AgentState = Literal["idle", "walking"]
-WorldEventType = Literal["left", "entered", "said", "thought"]
+AgentState = Literal["idle", "walking", "doing"]
+WorldEventType = Literal["left", "entered", "said", "thought", "activity"]
 
 
 class HealthResponse(BaseModel):
@@ -33,6 +33,7 @@ class Agent(BaseModel):
     location: str
     target_location: str
     state: AgentState
+    activity: str = ""
 
 
 class WorldEvent(BaseModel):
@@ -42,6 +43,7 @@ class WorldEvent(BaseModel):
     location: str
     target_agent_id: str | None = None
     content: str | None = None
+    duration_minutes: int | None = None
 
 
 class WorldSnapshot(BaseModel):

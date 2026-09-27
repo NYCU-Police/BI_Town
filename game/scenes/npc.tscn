@@ -21,30 +21,45 @@ script = ExtResource("1_npc")
 
 [node name="Shadow" type="Polygon2D" parent="."]
 color = Color(0, 0, 0, 0.38)
-polygon = PackedVector2Array(13, 1, 11.26, 3.25, 6.5, 4.9, 0, 5.5, -6.5, 4.9, -11.26, 3.25, -13, 1, -11.26, -1.25, -6.5, -2.9, 0, -3.5, 6.5, -2.9, 11.26, -1.25)
+polygon = PackedVector2Array(7, 1, 5, 2, 0, 2.4, -5, 2, -7, 1, -5, 0, 0, -0.6, 5, 0)
 
 [node name="Sprite" type="Sprite2D" parent="."]
 texture_filter = 1
-position = Vector2(0, -24)
-scale = Vector2(3, 3)
+position = Vector2(0, -8)
+scale = Vector2(1, 1)
 
 [node name="NamePlate" type="Panel" parent="."]
-offset_left = -18.0
-offset_top = -68.0
-offset_right = 18.0
-offset_bottom = -50.0
+offset_left = -16.0
+offset_top = -36.0
+offset_right = 16.0
+offset_bottom = -22.0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_name")
 
 [node name="Label" type="Label" parent="."]
 offset_left = -16.0
-offset_top = -68.0
+offset_top = -36.0
 offset_right = 16.0
-offset_bottom = -50.0
+offset_bottom = -22.0
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.91, 0.45, 0.48, 1)
-theme_override_font_sizes/font_size = 11
+theme_override_font_sizes/font_size = 8
 text = "NPC"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Activity" type="Label" parent="."]
+visible = false
+offset_left = -32.0
+offset_top = -50.0
+offset_right = 32.0
+offset_bottom = -38.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.62, 0.62, 0.58, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 8
+text = ""
 horizontal_alignment = 1
 vertical_alignment = 1
 
