@@ -37,6 +37,7 @@ func apply_snapshot(data: Dictionary) -> void:
 	for agent in agents:
 		if typeof(agent) == TYPE_DICTIONARY:
 			_upsert_npc(agent, true)
+	_separate_overlaps(true)
 
 
 func apply_agent_update(data: Dictionary) -> void:
@@ -47,6 +48,35 @@ func apply_agent_update(data: Dictionary) -> void:
 	for agent in agents:
 		if typeof(agent) == TYPE_DICTIONARY:
 			_upsert_npc(agent, false)
+	_separate_overlaps(false)
+
+
+func show_speech(agent_id: String, content: String) -> void:
+	if not _npcs.has(agent_id):
+		return
+	var npc: Node = _npcs[agent_id]
+	if npc.has_method("show_speech"):
+		npc.show_speech(content)
+
+
+func _separate_overlaps(snap: bool) -> void:
+	var groups: Dictionary = {}
+	for agent_id in _npcs:
+		var npc: Node = _npcs[agent_id]
+		if not npc.has_method("server_anchor"):
+			continue
+		var anchor: Vector2 = npc.server_anchor()
+		var key := "%s,%s" % [snappedf(anchor.x, 1.0), snappedf(anchor.y, 1.0)]
+		if not groups.has(key):
+			groups[key] = []
+		(groups[key] as Array).append(str(agent_id))
+	for key in groups:
+		var ids: Array = groups[key]
+		ids.sort()
+		for index in ids.size():
+			var npc: Node = _npcs[ids[index]]
+			if npc.has_method("set_cluster_slot"):
+				npc.set_cluster_slot(index, ids.size(), snap)
 
 
 func _upsert_npc(agent: Dictionary, snap: bool) -> void:

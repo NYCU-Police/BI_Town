@@ -1,8 +1,12 @@
+import os
+
 import pytest
 
-import app.config as config
-from app.state import reset_world
-from app.websocket.manager import manager
+os.environ["BRAIN_MODE"] = "rules"
+
+import app.config as config  # noqa: E402
+from app.state import reset_world  # noqa: E402
+from app.websocket.manager import manager  # noqa: E402
 
 config.SIMULATION_LOOP_ENABLED = False
 

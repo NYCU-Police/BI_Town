@@ -10,8 +10,11 @@ func clear_events() -> void:
 	text = ""
 
 
-func add_event(line: String) -> void:
-	_lines.push_front(line)
+func add_event(line: String, muted: bool = false) -> void:
+	var shown := line
+	if muted:
+		shown = "[color=#9a9a94]%s[/color]" % line
+	_lines.push_front(shown)
 	if _lines.size() > MAX_EVENTS:
 		_lines.resize(MAX_EVENTS)
 	text = "\n".join(_lines)

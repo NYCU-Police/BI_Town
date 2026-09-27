@@ -213,7 +213,7 @@ func _short_commit(commit: String) -> String:
 
 func _set_clock(data: Dictionary) -> void:
 	if data.has("day") and data.has("time"):
-		_time_label.text = "Day %s — %s" % [data["day"], data["time"]]
+		_time_label.text = "Day %d — %s" % [int(data["day"]), data["time"]]
 
 
 func _remember_agent(agent: Dictionary) -> void:
@@ -227,7 +227,12 @@ func _append_event(data: Dictionary) -> void:
 	if not _event_log.has_method("add_event"):
 		push_error("EventLog is missing add_event()")
 		return
-	_event_log.add_event(_format_event(data))
+	var muted := str(data.get("event", "")) == "thought"
+	_event_log.add_event(_escape_bbcode(_format_event(data)), muted)
+
+
+func _escape_bbcode(line: String) -> String:
+	return line.replace("[", "[lb]")
 
 
 func _format_event(data: Dictionary) -> String:
@@ -235,5 +240,14 @@ func _format_event(data: Dictionary) -> String:
 	var agent_id := str(data.get("agent_id", ""))
 	var agent_name := str(_agent_names.get(agent_id, agent_id.capitalize()))
 	var action := str(data.get("event", ""))
+	if action == "said":
+		var content := str(data.get("content", ""))
+		var target_id := str(data.get("target_agent_id", ""))
+		if target_id.is_empty():
+			return "%s %s 說：%s" % [timestamp, agent_name, content]
+		var target_name := str(_agent_names.get(target_id, target_id.capitalize()))
+		return "%s %s 對 %s 說：%s" % [timestamp, agent_name, target_name, content]
+	if action == "thought":
+		return "%s %s 想：%s" % [timestamp, agent_name, str(data.get("content", ""))]
 	var location := str(data.get("location", "")).capitalize()
 	return "%s %s %s %s" % [timestamp, agent_name, action, location]

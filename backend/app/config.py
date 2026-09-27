@@ -24,3 +24,21 @@ INITIAL_TIME = "08:00"
 AGENT_SPEED_PER_TICK = 50.0
 ARRIVAL_DISTANCE_THRESHOLD = 10.0
 MAX_WORLD_EVENTS = 50
+
+
+def current_brain_mode() -> str:
+    """rules keeps the schedule. llm is opt-in and must not be the deploy default."""
+    raw = os.environ.get("BRAIN_MODE", "rules").strip().lower()
+    if raw in {"rules", "llm"}:
+        return raw
+    return "rules"
+
+
+LLM_IDLE_DECISION_MINUTES = 15
+LLM_MAX_CONSECUTIVE_DIALOGUE = 6
+LLM_MEMORY_PROMPT_LIMIT = 10
+LLM_MEMORY_STORE_LIMIT = 50
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
+DEFAULT_LLM_MODEL = "qwen3:14b"
+DEFAULT_LLM_TIMEOUT_SECONDS = 60.0
+LLM_TEMPERATURE = 0.8

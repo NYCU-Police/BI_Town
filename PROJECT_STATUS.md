@@ -5,10 +5,10 @@
 ## 1. 專案是什麼
 
 - 名稱：BI_Town（Behavioral Intelligence Town）。版本常數在 `backend/app/config.py` 的 `VERSION = "0.1.0"`。
-- 類型：AI-native social simulation。目前沒有 LLM，也沒有真正的 AI agent。
+- 類型：AI-native social simulation。預設大腦是行程表，不是 LLM。`BRAIN_MODE=llm` 才改走本機模型，而且正式站沒有開這個開關。
 - 架構：server-authoritative。World state 的唯一來源是 FastAPI backend。Godot client 只渲染 server 送來的狀態，不自行推進時鐘、不決定 NPC 去向。
 - World 存在 process 記憶體（`backend/app/state.py` 的 `World` singleton）。重啟即重置。Postgres 與 Redis 只在 Docker Compose 裡待命，backend 程式尚未連線。
-- 開局：Day 1、08:00。兩個 rule-based agent：Mina、Alex。地點：home、cafe、office、park。
+- 開局：Day 1、08:00。預設兩個 rule-based agent：Mina、Alex。`BRAIN_MODE=llm` 改為 Mina、Alex、Rin，三人都從 home 出發。地點：home、cafe、office、park。
 - 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`（含 `version`、`git_commit`、`deployed_at`）。部署步驟與回滾見 `docs/DEPLOY.md`。
 
 ## 2. 目前架構
@@ -26,12 +26,12 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
 ```
 
 - 模擬迴圈：`simulation_loop` 每 `SIMULATION_TICK_SECONDS`（1 秒）呼叫一次 `World.tick()`。每個 tick 推進 `GAME_MINUTES_PER_TICK`（1 遊戲分鐘）。
-- `World.tick()` 順序：依當下遊戲時間套用行程 → 移動 walking agent → 推進時鐘。
+- `World.tick()` 在預設 `rules` 的順序：依當下遊戲時間套用行程 → 移動 walking agent → 推進時鐘。`llm` 不套行程；決策在另一個 async worker 裡跑，`tick()` 只套用已經回來的結果、走路、把下一次請求放進佇列，然後推進時鐘。
 - Agent 狀態只有 `idle` 與 `walking`。行程命中時從 idle 改為 walking，並記一筆 `left`。抵達 POI（距離 ≤ `ARRIVAL_DISTANCE_THRESHOLD` 或 ≤ 本 tick 步長）後改回 idle，記一筆 `entered`。
 - WebSocket 訊息（`backend/app/models/schemas.py`）：
   - `world_snapshot`：連線當下整包狀態（day、time、agents、events）。
-  - `agent_update`：本 tick 有變動的 agents，附上 day 與 time。
-  - `world_event`：本 tick 新增的 `left` / `entered`。
+  - `agent_update`：每個 tick 都送，附上 day 與 time。`agents` 只列本 tick 有移動或改狀態的人，可以是空陣列。
+  - `world_event`：本 tick 新增的 `left` / `entered`。`llm` 模式另有 `said`（`content`，`target_agent_id` 可省略）與 `thought`（`content`）。`left` / `entered` 的 JSON 不帶這兩個可選欄位。
 - HTTP API（prefix `/api`）：`GET /health`、`GET /world`、`GET /agents`、`GET /events`。`/health` 帶 `Cache-Control: no-store`。`git_commit` 來自映像建置參數，`deployed_at` 來自容器建立時的環境變數；沒設定時是 `unknown`。Godot 殼檔（`/`、`index.html`、`index.js`、`index.wasm`、`index.pck`、`build_info.json`）回 `Cache-Control: no-cache`，並用 ETag 回 304。
 - Web export 的 HUD 向 `/build_info.json` 讀前端 commit、向 `/api/health` 讀後端 commit。兩邊不同時，右側身分列用琥珀色。請求失敗只把缺的那側顯示成 `unknown`，遊戲繼續跑。CI 在 export 前把 `GITHUB_SHA` 寫進 `game/build_info.json`，export 後再複製到產物目錄。
 - Godot web export 由 backend 以靜態檔提供。`STATIC_WEB_DIR` 有值且目錄內有 `index.html` 才 mount 在 `/`。本機只跑 uvicorn、沒設這個變數時，只提供 API 與 WebSocket。
@@ -219,11 +219,9 @@ docker compose --profile tunnel up -d --build
 
 ## 7. 已知待辦
 
-這三項是現況缺陷，尚未修。
+先前三項畫面缺陷已修：全員 idle 時每個 tick 仍廣播 `agent_update`（時鐘繼續走）、HUD 把 day 轉成整數（不再顯示 `1.0`）、同座標的 NPC 只在 client 上錯開名字與對話泡泡，伺服器座標不變。
 
-- 時鐘在全員 idle 時停走。`World.tick()` 仍會 `advance_clock`，但 `broadcast_tick` 只在 `changed_agents` 非空時送 `agent_update`。該遊戲分鐘沒有人出發、也沒有人在走時，client 收不到新的 day/time。HUD 只在 `world_snapshot` 與 `agent_update` 改時鐘。沒有 `time_update`（或同等、即使沒有 agent 變動也帶 day/time 的廣播）。
-- Day 顯示 `1.0`。`hud.gd` 的 `_set_clock` 用 `%s` 印 `data["day"]`。Godot `JSON.parse_string` 把 JSON number 解成 float，整數 day 會印成 `1.0`。
-- 同地點 NPC 名字重疊。兩個 agent 停在同一 POI 時座標相同，`npc.tscn` 的 Label 以節點為中心，沒有錯開。
+預設大腦仍是 `rules`（Mina、Alex 的行程）。`BRAIN_MODE=llm` 是選用開關，居民換成 Mina、Alex、Rin，決策打本機 Ollama，且不阻塞 `tick()`。這不是 v0.2 roadmap 的第 4 步；那一步還沒做。主機上怎麼開這個開關見 `backend/README.md`。不要改 Compose 或 8100 的正式部署來開它。
 
 ## 8. v0.2 roadmap
 
@@ -232,4 +230,4 @@ docker compose --profile tunnel up -d --build
 1. 視覺基礎：tilemap、NPC sprite（取代現在的 ColorRect 方塊與純色背景）。
 2. Needs 系統。
 3. NPC 狀態圖示。
-4. 之後才接 LLM。v0.1 的 fake agent 與 WebSocket pipeline 是這一步之前的骨架。
+4. 之後才做產品意義上的 LLM 居民。目前的 `BRAIN_MODE=llm` 只是可選的本機路徑，預設仍是 rules，不算這一步完成。

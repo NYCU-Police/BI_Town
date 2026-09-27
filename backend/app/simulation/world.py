@@ -6,10 +6,12 @@ from app.config import (
     INITIAL_DAY,
     INITIAL_TIME,
     MAX_WORLD_EVENTS,
+    current_brain_mode,
 )
 from app.models.schemas import Agent, Position, WorldEvent, WorldSnapshot, WorldState
 from app.simulation.clock import advance_clock
 from app.simulation.fake_agent import apply_schedule, move_agent
+from app.simulation.llm_session import Decider, LlmSession
 from app.simulation.poi import POIS
 
 
@@ -34,14 +36,29 @@ def _agent_at_home(agent_id: str, name: str) -> Agent:
 class World:
     """Server-authoritative in-memory world. tick() is synchronous and testable."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        brain_mode: str | None = None,
+        decider: Decider | None = None,
+    ) -> None:
+        mode = current_brain_mode() if brain_mode is None else brain_mode
+        if mode not in {"rules", "llm"}:
+            mode = "rules"
+        self.brain_mode = mode
         self.day = INITIAL_DAY
         self.time = INITIAL_TIME
-        self.agents: dict[str, Agent] = {
-            "mina": _agent_at_home("mina", "Mina"),
-            "alex": _agent_at_home("alex", "Alex"),
-        }
         self.events: deque[WorldEvent] = deque(maxlen=MAX_WORLD_EVENTS)
+        self.llm: LlmSession | None = None
+        if mode == "llm":
+            self.llm = LlmSession(decider)
+            self.agents = {
+                resident.id: resident.as_agent() for resident in self.llm.residents
+            }
+        else:
+            self.agents = {
+                "mina": _agent_at_home("mina", "Mina"),
+                "alex": _agent_at_home("alex", "Alex"),
+            }
 
     def add_event(self, event: WorldEvent) -> None:
         self.events.append(event)
@@ -68,6 +85,11 @@ class World:
         )
 
     def tick(self) -> TickResult:
+        if self.llm is None:
+            return self._tick_rules()
+        return self._tick_llm()
+
+    def _tick_rules(self) -> TickResult:
         action_time = self.time
         new_events: list[WorldEvent] = []
         changed_ids: set[str] = set()
@@ -91,6 +113,27 @@ class World:
             if after != before:
                 changed_ids.add(agent.id)
 
+        self.day, self.time = advance_clock(
+            self.day,
+            self.time,
+            GAME_MINUTES_PER_TICK,
+        )
+        changed_agents = [
+            self.agents[agent_id]
+            for agent_id in self.agents
+            if agent_id in changed_ids
+        ]
+        return TickResult(events=new_events, changed_agents=changed_agents)
+
+    def _tick_llm(self) -> TickResult:
+        action_time = self.time
+        assert self.llm is not None
+        new_events, changed_ids = self.llm.advance(action_time)
+        for event in new_events:
+            self.add_event(event)
+        self.agents = {
+            resident.id: resident.as_agent() for resident in self.llm.residents
+        }
         self.day, self.time = advance_clock(
             self.day,
             self.time,

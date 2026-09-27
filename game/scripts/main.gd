@@ -24,6 +24,10 @@ func _on_agent_update(data: Dictionary) -> void:
 
 func _on_event(data: Dictionary) -> void:
 	_hud.apply_event(data)
+	if str(data.get("event", "")) != "said":
+		return
+	if _world.has_method("show_speech"):
+		_world.show_speech(str(data.get("agent_id", "")), str(data.get("content", "")))
 
 
 func _on_connection(online: bool) -> void:

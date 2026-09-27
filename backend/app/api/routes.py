@@ -29,6 +29,10 @@ async def get_agents() -> list[Agent]:
     return state.world.agent_list()
 
 
-@router.get("/events", response_model=list[WorldEvent])
+@router.get(
+    "/events",
+    response_model=list[WorldEvent],
+    response_model_exclude_none=True,
+)
 async def get_events() -> list[WorldEvent]:
     return state.world.recent_events()
