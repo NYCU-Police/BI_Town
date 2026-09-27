@@ -7,11 +7,16 @@ const COLORS := {
 	"alex": Color(0.35, 0.72, 0.78),
 	"rin": Color(0.95, 0.78, 0.35),
 }
+const SPRITES := {
+	"mina": preload("res://assets/characters/mina.png"),
+	"alex": preload("res://assets/characters/alex.png"),
+	"rin": preload("res://assets/characters/rin.png"),
+}
 const SPEECH_HOLD_SECONDS := 6.0
 const SPEECH_FADE_SECONDS := 0.4
-const LABEL_TOP := -32.0
-const LABEL_BOTTOM := -12.0
-const NAME_STEP := 72.0
+## Top of the name plate, just above the 48px sprite. The speech tail sits above this.
+const LABEL_TOP := -68.0
+const SLOT_STEP := 52.0
 const BUBBLE_STACK := 78.0
 const BUBBLE_MAX_WIDTH := 220.0
 const BUBBLE_PAD_X := 10.0
@@ -21,22 +26,33 @@ const TEXT_FONT_SIZE := 14
 const TAIL_HALF_WIDTH := 8.0
 const TAIL_HEIGHT := 10.0
 const NAME_GAP := 2.0
+const SPRITE_Y := -24.0
+const WALK_FRAME_SECONDS := 0.18
+const IDLE_FRAME_SECONDS := 0.7
 
 var server_position: Vector2 = Vector2.ZERO
 var visual_offset: Vector2 = Vector2.ZERO
+var stand_offset: Vector2 = Vector2.ZERO
 var _has_server_position: bool = false
 var _speech_hold: float = 0.0
 var _speech_fade: float = 0.0
 var _agent_id: String = ""
 var _slot_index: int = 0
+var _anim_time: float = 0.0
 
-@onready var _body: ColorRect = $Body
+@onready var _sprite: Sprite2D = $Sprite
 @onready var _label: Label = $Label
 @onready var _speech: Node2D = $Speech
 @onready var _bubble: Panel = $Speech/Bubble
 @onready var _tail: Polygon2D = $Speech/Tail
 @onready var _speaker_label: Label = $Speech/Name
 @onready var _speech_label: Label = $Speech/Text
+
+
+func _ready() -> void:
+	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_sprite.scale = Vector2(3, 3)
+	_sprite.position = Vector2(0, SPRITE_Y)
 
 
 func server_anchor() -> Vector2:
@@ -53,9 +69,15 @@ func update_from_server(data: Dictionary, snap: bool = false) -> void:
 	server_position = Vector2(float(coords.get("x", 0.0)), float(coords.get("y", 0.0)))
 	_agent_id = str(data.get("id", ""))
 	_label.text = str(data.get("name", _agent_id if not _agent_id.is_empty() else "NPC"))
-	if COLORS.has(_agent_id):
-		_body.color = COLORS[_agent_id]
+	var tint: Color = COLORS.get(_agent_id, Color(0.93, 0.93, 0.93))
+	_label.add_theme_color_override("font_color", tint)
+	_sprite.texture = SPRITES.get(_agent_id, SPRITES["mina"])
 
+	_place(snap)
+
+
+func set_stand_offset(offset: Vector2, snap: bool) -> void:
+	stand_offset = offset
 	_place(snap)
 
 
@@ -63,11 +85,9 @@ func set_cluster_slot(index: int, count: int, snap: bool) -> void:
 	_slot_index = index
 	var body := Vector2.ZERO
 	if count > 1:
-		var origin := -NAME_STEP * float(count - 1) / 2.0
-		body = Vector2(origin + NAME_STEP * float(index), 0.0)
+		var origin := -SLOT_STEP * float(count - 1) / 2.0
+		body = Vector2(origin + SLOT_STEP * float(index), 0.0)
 	visual_offset = body
-	_label.offset_top = LABEL_TOP
-	_label.offset_bottom = LABEL_BOTTOM
 	_place_speech()
 	_place(snap)
 
@@ -88,7 +108,7 @@ func show_speech(content: String) -> void:
 
 
 func _place_speech() -> void:
-	# Tail tip is just above the name label. Extra people stack upward.
+	# Tail tip is just above the name plate. Extra people stack upward.
 	_speech.position = Vector2(0, LABEL_TOP - 2.0 - BUBBLE_STACK * float(_slot_index))
 
 
@@ -139,9 +159,13 @@ func _layout_bubble() -> void:
 	])
 
 
+func _goal() -> Vector2:
+	return server_position + stand_offset + visual_offset
+
+
 func _place(snap: bool) -> void:
 	if snap or not _has_server_position:
-		position = server_position + visual_offset
+		position = _goal()
 		_has_server_position = true
 
 
@@ -161,5 +185,22 @@ func _process(delta: float) -> void:
 				_speech.modulate.a = 1.0
 	if not _has_server_position:
 		return
-	var goal := server_position + visual_offset
+	var goal := _goal()
+	var before := position
 	position = position.lerp(goal, clampf(lerp_speed * delta, 0.0, 1.0))
+	_apply_motion(delta, position - before, goal)
+
+
+func _apply_motion(delta: float, moved: Vector2, goal: Vector2) -> void:
+	if absf(moved.x) > 0.15:
+		_sprite.flip_h = moved.x < 0.0
+	var traveling := moved.length() > 0.25 or position.distance_to(goal) > 0.8
+	_anim_time += delta
+	var lift := 0.0
+	if traveling:
+		var frame := int(_anim_time / WALK_FRAME_SECONDS) % 2
+		lift = 3.0 if frame == 1 else 0.0
+	else:
+		var frame := int(_anim_time / IDLE_FRAME_SECONDS) % 2
+		lift = 1.0 if frame == 1 else 0.0
+	_sprite.position = Vector2(0, SPRITE_Y - lift)

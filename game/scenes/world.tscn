@@ -5,6 +5,7 @@
 [ext_resource type="Script" path="res://scripts/town_map.gd" id="3_map"]
 
 [node name="World" type="Node2D"]
+y_sort_enabled = true
 script = ExtResource("1_world")
 npc_scene = ExtResource("2_npc")
 
@@ -12,7 +13,12 @@ npc_scene = ExtResource("2_npc")
 texture_filter = 1
 script = ExtResource("3_map")
 
+[node name="Objects" type="TileMapLayer" parent="."]
+y_sort_enabled = true
+texture_filter = 1
+
 [node name="POIs" type="Node2D" parent="."]
+z_index = 2
 
 [node name="Home" type="Node2D" parent="POIs"]
 position = Vector2(100, 100)

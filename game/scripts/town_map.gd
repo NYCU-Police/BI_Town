@@ -8,9 +8,9 @@ extends TileMapLayer
 const TILE := 16
 const MAP_SIZE := Vector2i(80, 45)
 const BUILDING_TILES := 4
-## NPC ColorRect is 20×20 and axis-aligned, so a corner sits ~14px off a
-## diagonal path. Tiles that come within this distance of the centerline
-## are path, which keeps that square on road or building tiles.
+## Feet follow the POI centerline. Tiles within this distance stay road,
+## which used to keep a 20px marker on the path. Sprites hang wider than
+## that; standing in front of a door is a display offset, not a new path.
 const NPC_COVER := 18.0
 const PATH_SAMPLE := 4.0
 
@@ -49,10 +49,15 @@ const WALKED_EDGES: Array = [
 ]
 
 var _source_id := 0
+var _objects: TileMapLayer
 
 
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
+	_objects = get_node_or_null("../Objects") as TileMapLayer
+	if _objects != null:
+		_objects.texture_filter = TEXTURE_FILTER_NEAREST
+		_objects.y_sort_enabled = true
 	_rebuild()
 
 
@@ -68,7 +73,11 @@ func _rebuild() -> void:
 	tileset.tile_size = Vector2i(TILE, TILE)
 	tileset.uv_clipping = true
 	_source_id = tileset.add_source(atlas)
+	clear()
 	tile_set = tileset
+	if _objects != null:
+		_objects.clear()
+		_objects.tile_set = tileset
 	_paint()
 
 
@@ -249,7 +258,7 @@ func _try_tree(cell: Vector2i) -> void:
 			var neighbor := cell + Vector2i(ox, oy)
 			if not _in_map(neighbor) or not _is_open_ground(neighbor):
 				return
-	set_cell(cell, _source_id, A_TREE)
+	_set_tile(cell, A_TREE)
 
 
 func _warn_if_npc_would_leave_path(a: Vector2, b: Vector2) -> void:
@@ -281,6 +290,11 @@ func _tile_supports_npc(point: Vector2) -> bool:
 	var cell := Vector2i(int(floor(point.x / float(TILE))), int(floor(point.y / float(TILE))))
 	if not _in_map(cell):
 		return false
+	var prop := _object_atlas(cell)
+	if prop == A_TREE:
+		return false
+	if prop.x >= 0:
+		return true
 	if _is_open_ground(cell):
 		return false
 	var atlas := get_cell_atlas_coords(cell)
@@ -296,9 +310,17 @@ func _in_map(cell: Vector2i) -> bool:
 	return cell.x >= 0 and cell.y >= 0 and cell.x < MAP_SIZE.x and cell.y < MAP_SIZE.y
 
 
+func _object_atlas(cell: Vector2i) -> Vector2i:
+	if _objects == null:
+		return Vector2i(-1, -1)
+	return _objects.get_cell_atlas_coords(cell)
+
+
 func _set_tile(cell: Vector2i, atlas: Vector2i) -> void:
-	if _in_map(cell):
-		set_cell(cell, _source_id, atlas)
+	if not _in_map(cell):
+		return
+	var layer := _objects if _objects != null else self
+	layer.set_cell(cell, _source_id, atlas)
 
 
 func _build_atlas() -> Image:

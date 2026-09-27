@@ -95,12 +95,12 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | `serve_web.py` | 本機提供 web export，帶 COOP/COEP。預設 `127.0.0.1:8080`。 |
 | `scenes/main.tscn` | `Main` + `NetworkClient` + `World` + `HUD`。 |
 | `scenes/world.tscn` | 純色背景與四個 POI marker（ColorRect + Label）。 |
-| `scenes/npc.tscn` | NPC：ColorRect 方塊 + 名字 Label。 |
+| `scenes/npc.tscn` | NPC：16×16 像素人物（3 倍、nearest）、腳下陰影、圓角名字底牌。 |
 | `scenes/ui/hud.tscn` | 時鐘、連線狀態、agent 數、事件日誌。 |
 | `scripts/main.gd` | 把 WebSocket signal 接到 World 與 HUD。 |
 | `scripts/network_client.gd` | WebSocket client。桌面預設 `ws://127.0.0.1:8000/ws`。Web build 用頁面同源 `/ws`；分進程本機開發用 query `?ws=`。斷線後 2s 起、上限 30s 重連。 |
 | `scripts/world.gd` | 依 snapshot / agent_update 生成或更新 NPC。`_ready` 檢查場景 POI 座標是否與 backend 一致。 |
-| `scripts/npc.gd` | 把座標 lerp 向 server 位置。顏色依 agent id（Mina 粉、Alex 青）。 |
+| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色依 agent id（Mina 紅、Alex 青、Rin 金）。 |
 | `scripts/hud.gd` | 時鐘、連線、人數、事件文字。時鐘只在 snapshot 與 agent_update 更新。 |
 | `scripts/event_log.gd` | 事件日誌，最多 20 行。 |
 
@@ -227,7 +227,7 @@ docker compose --profile tunnel up -d --build
 
 順序固定，LLM 排在最後：
 
-1. 視覺基礎：tilemap、NPC sprite（取代現在的 ColorRect 方塊與純色背景）。
+1. 視覺基礎：tilemap 與 NPC sprite 已取代 ColorRect 方塊與純色背景。角色是 Kenney Roguelike Characters（CC0）的 16×16 裁切，見 `game/assets/characters/`。
 2. Needs 系統。
 3. NPC 狀態圖示。
 4. 之後才做產品意義上的 LLM 居民。目前的 `BRAIN_MODE=llm` 只是可選的本機路徑，預設仍是 rules，不算這一步完成。

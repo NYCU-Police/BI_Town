@@ -1,0 +1,28 @@
+Roguelike Characters (2.0) by Kenney
+
+Source: https://kenney.nl/assets/roguelike-characters
+License: Creative Commons Zero (CC0) 1.0
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Created/distributed by Kenney (www.kenney.nl).
+Attribution is not required. If credited, use "Kenney" or www.kenney.nl.
+
+mina.png, alex.png, and rin.png are 16×16 crops from
+Spritesheet/roguelikeChar_transparent.png (tile 16×16, 1px margin):
+
+- mina.png: row 8, column 0 (topknot). Tunic shifted toward red.
+- alex.png: row 10, column 1 (short dark hair). Tunic shifted toward cyan.
+  Pale hair-edge pixels were shifted to the same brown so the cut stays dark.
+- rin.png: row 7, column 1 (long brown hair). Tunic shifted toward gold.
+
+Hair, skin, and the rest of each sprite are unchanged Kenney pixels.
+The hue shift keeps the three residents distinguishable and aligned with
+the event-log colors. CC0 allows this modification.
+
+Original pack notice:
+
+License: (Creative Commons Zero, CC0)
+http://creativecommons.org/publicdomain/zero/1.0/
+
+This content is free to use in personal, educational and commercial projects.
+Support us by crediting Kenney or www.kenney.nl (this is not mandatory)
