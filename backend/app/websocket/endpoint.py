@@ -16,7 +16,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     await manager.connect(websocket)
     try:
         snapshot = WorldSnapshotMessage(data=state.world.snapshot())
-        await websocket.send_json(snapshot.model_dump())
+        await websocket.send_json(snapshot.model_dump(exclude_none=True))
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:

@@ -24,3 +24,17 @@ theme_override_constants/outline_size = 4
 theme_override_font_sizes/font_size = 13
 text = "NPC"
 horizontal_alignment = 1
+
+[node name="Speech" type="Label" parent="."]
+visible = false
+offset_left = -110.0
+offset_top = -78.0
+offset_right = 110.0
+offset_bottom = -36.0
+theme_override_colors/font_color = Color(1, 0.96, 0.86, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 13
+text = ""
+horizontal_alignment = 1
+autowrap_mode = 3

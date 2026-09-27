@@ -1,0 +1,80 @@
+import asyncio
+import time
+
+from app import state
+from app.simulation.llm_session import service_pending
+from app.simulation.loop import broadcast_tick
+from app.simulation.world import World
+
+STAY = '{"action":"stay","target":"","say":"早安","thought":"先看看周圍"}'
+
+
+def test_llm_decisions_emit_said_and_thought() -> None:
+    calls: list[int] = []
+
+    async def fake(_messages: list[dict[str, str]]) -> str:
+        calls.append(1)
+        return STAY
+
+    world = World(brain_mode="llm", decider=fake)
+    assert {agent.id for agent in world.agent_list()} == {"mina", "alex", "rin"}
+
+    first = world.tick()
+    assert first.events == []
+    assert calls == []
+    assert world.llm is not None
+    assert world.llm.queue.qsize() == 3
+
+    asyncio.run(service_pending(world.llm))
+    assert len(calls) == 3
+
+    second = world.tick()
+    said = [event for event in second.events if event.event == "said"]
+    thought = [event for event in second.events if event.event == "thought"]
+    assert {event.agent_id for event in said} == {"mina", "alex", "rin"}
+    assert {event.content for event in said} == {"早安"}
+    assert {event.content for event in thought} == {"先看看周圍"}
+    assert world.time == "08:02"
+
+
+def test_tick_does_not_wait_for_the_model() -> None:
+    async def slow(_messages: list[dict[str, str]]) -> str:
+        await asyncio.sleep(30)
+        return STAY
+
+    world = World(brain_mode="llm", decider=slow)
+    started = time.perf_counter()
+    world.tick()
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.5
+    assert world.time == "08:01"
+    assert world.llm is not None
+    assert world.llm.queue.qsize() == 3
+    assert world.llm.inbox == []
+
+
+def test_idle_tick_still_broadcasts_time(monkeypatch) -> None:
+    sent: list[dict] = []
+
+    async def capture(payload: dict) -> None:
+        sent.append(payload)
+
+    monkeypatch.setattr("app.simulation.loop.manager.broadcast", capture)
+    world = state.world
+    world.time = "10:00"
+    for agent in world.agents.values():
+        agent.state = "idle"
+        agent.location = "office"
+        agent.target_location = "office"
+
+    result = world.tick()
+    assert result.changed_agents == []
+    assert result.events == []
+    assert world.time == "10:01"
+
+    asyncio.run(broadcast_tick(result))
+    assert sent[0]["type"] == "agent_update"
+    assert sent[0]["data"]["day"] == 1
+    assert sent[0]["data"]["time"] == "10:01"
+    assert sent[0]["data"]["agents"] == []
