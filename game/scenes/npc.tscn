@@ -17,7 +17,8 @@ corner_radius_bottom_right = 6
 corner_radius_bottom_left = 6
 
 [node name="NPC" type="Node2D"]
-z_index = 10
+z_index = 1
+y_sort_enabled = true
 script = ExtResource("1_npc")
 
 [node name="Shadow" type="Polygon2D" parent="."]

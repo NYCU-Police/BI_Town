@@ -6,9 +6,9 @@ const SPEECH_HOLD_SECONDS := 6.0
 const SPEECH_FADE_SECONDS := 0.4
 ## Top of the name plate, just above the 16px sprite. The speech tail sits above this.
 const LABEL_TOP := -40.0
-## Above POI sprites (z 1) and map decorations (z 0). Y-sort still orders residents.
-const CHARACTER_Z := 10
-const LOCAL_PLAYER_Z := 11
+## Same band as map decorations so Y-sort can hide a character behind a tree.
+const CHARACTER_Z := 1
+const LOCAL_PLAYER_Z := 1
 const SLOT_STEP := 18.0
 const BUBBLE_STACK := 78.0
 const BUBBLE_MAX_WIDTH := 220.0
@@ -19,8 +19,7 @@ const TEXT_FONT_SIZE := 12
 const TAIL_HALF_WIDTH := 8.0
 const TAIL_HEIGHT := 10.0
 const NAME_GAP := 2.0
-const WALK_FRAME_SECONDS := 0.18
-const IDLE_FRAME_SECONDS := 0.7
+const SHEET_FPS := 8.0
 
 var server_position: Vector2 = Vector2.ZERO
 var visual_offset: Vector2 = Vector2.ZERO
@@ -31,7 +30,9 @@ var _speech_fade: float = 0.0
 var _agent_id: String = ""
 var _visual_id: String = ""
 var _slot_index: int = 0
-var _anim_time: float = 0.0
+var _facing := "down"
+var _frame_index := 0
+var _frame_clock := 0.0
 var _local_player: bool = false
 
 var _you_ring: Line2D
@@ -50,6 +51,10 @@ var _you_arrow: Polygon2D
 
 func _ready() -> void:
 	z_index = CHARACTER_Z
+	y_sort_enabled = true
+	_name_plate.z_index = 20
+	_label.z_index = 20
+	_activity.z_index = 20
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.scale = Vector2.ONE
 	_sprite.position = Vector2.ZERO
@@ -58,9 +63,10 @@ func _ready() -> void:
 	_you_ring.width = 2.0
 	_you_ring.closed = true
 	_you_ring.visible = false
-	_you_ring.z_index = -1
+	_you_ring.z_index = 0
 	_you_ring.points = _circle_points(11.0, 16)
 	add_child(_you_ring)
+	move_child(_you_ring, 0)
 	_you_arrow = Polygon2D.new()
 	_you_arrow.name = "YouArrow"
 	_you_arrow.polygon = PackedVector2Array([
@@ -264,15 +270,38 @@ func _process(delta: float) -> void:
 
 
 func _apply_motion(delta: float, moved: Vector2, goal: Vector2) -> void:
-	if absf(moved.x) > 0.15:
-		_sprite.flip_h = moved.x < 0.0
+	_sprite.position = Vector2.ZERO
+	_sprite.flip_h = false
+	if not _sprite.has_meta("sheet_anims"):
+		return
+	var anims: Dictionary = _sprite.get_meta("sheet_anims")
+	var next_facing := _facing
+	if absf(moved.x) > absf(moved.y) and absf(moved.x) > 0.15:
+		next_facing = "left" if moved.x < 0.0 else "right"
+	elif absf(moved.y) > 0.15:
+		next_facing = "down" if moved.y > 0.0 else "up"
+	if next_facing != _facing:
+		_facing = next_facing
+		_frame_index = 0
+		_frame_clock = 0.0
 	var traveling := moved.length() > 0.25 or position.distance_to(goal) > 0.8
-	_anim_time += delta
-	var lift := 0.0
+	var frames: Array = anims.get(("walk_" if traveling else "idle_") + _facing, [])
+	if frames.is_empty():
+		return
 	if traveling:
-		var frame := int(_anim_time / WALK_FRAME_SECONDS) % 2
-		lift = 1.0 if frame == 1 else 0.0
+		_frame_clock += delta
+		if _frame_clock >= 1.0 / SHEET_FPS:
+			_frame_clock = 0.0
+			_frame_index = (_frame_index + 1) % frames.size()
 	else:
-		var frame := int(_anim_time / IDLE_FRAME_SECONDS) % 2
-		lift = 1.0 if frame == 1 else 0.0
-	_sprite.position = Vector2(0, -lift)
+		_frame_index = 0
+		_frame_clock = 0.0
+	var cell: Variant = frames[_frame_index % frames.size()]
+	var frame: Vector2 = _sprite.get_meta("sheet_frame")
+	var column := 0
+	var row := 0
+	if typeof(cell) == TYPE_ARRAY and cell.size() >= 2:
+		column = int(cell[0])
+		row = int(cell[1])
+	_sprite.region_enabled = true
+	_sprite.region_rect = Rect2(float(column) * frame.x, float(row) * frame.y, frame.x, frame.y)

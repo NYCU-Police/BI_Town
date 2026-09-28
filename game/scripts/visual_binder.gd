@@ -33,7 +33,11 @@ static func apply(sprite: Sprite2D, host: Node, content_id: String) -> void:
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.centered = true
 	sprite.visible = true
+	_clear_sheet(sprite)
 	var size := texture.get_size()
+	if str(_entry(_lookup_key(content_id)).get("kind", "")) == "spritesheet":
+		size = _frame_size(content_id)
+		_bind_sheet(sprite, content_id, size)
 	var origin := _origin(content_id)
 	sprite.offset = Vector2((0.5 - origin.x) * size.x, (0.5 - origin.y) * size.y)
 	if previous != null:
@@ -122,6 +126,7 @@ static func _show_placeholder(
 ) -> void:
 	sprite.texture = null
 	sprite.visible = false
+	_clear_sheet(sprite)
 	if previous != null:
 		previous.queue_free()
 	var box := _footprint(content_id)
@@ -208,8 +213,47 @@ static func _uses_placeholder(content_id: String) -> bool:
 static func _clear_sprite(sprite: Sprite2D, previous: Node) -> void:
 	sprite.texture = null
 	sprite.visible = false
+	_clear_sheet(sprite)
 	if previous != null:
 		previous.queue_free()
+
+
+static func _bind_sheet(sprite: Sprite2D, content_id: String, frame: Vector2) -> void:
+	var anims: Variant = _entry(_lookup_key(content_id)).get("anims", {})
+	if typeof(anims) != TYPE_DICTIONARY:
+		anims = {}
+	sprite.region_enabled = true
+	sprite.set_meta("sheet_anims", anims)
+	sprite.set_meta("sheet_frame", frame)
+	var idle: Variant = anims.get("idle_down", [[0, 0]])
+	var cell: Variant = [0, 0]
+	if typeof(idle) == TYPE_ARRAY and idle.size() > 0:
+		cell = idle[0]
+	_show_cell(sprite, cell, frame)
+
+
+static func _show_cell(sprite: Sprite2D, cell: Variant, frame: Vector2) -> void:
+	var column := 0
+	var row := 0
+	if typeof(cell) == TYPE_ARRAY and cell.size() >= 2:
+		column = int(cell[0])
+		row = int(cell[1])
+	sprite.region_rect = Rect2(float(column) * frame.x, float(row) * frame.y, frame.x, frame.y)
+
+
+static func _frame_size(content_id: String) -> Vector2:
+	var raw: Variant = _entry(_lookup_key(content_id)).get("frame_size", [16, 16])
+	if typeof(raw) != TYPE_ARRAY or raw.size() < 2:
+		return Vector2(16, 16)
+	return Vector2(float(raw[0]), float(raw[1]))
+
+
+static func _clear_sheet(sprite: Sprite2D) -> void:
+	sprite.region_enabled = false
+	if sprite.has_meta("sheet_anims"):
+		sprite.remove_meta("sheet_anims")
+	if sprite.has_meta("sheet_frame"):
+		sprite.remove_meta("sheet_frame")
 
 
 static func _warn_once(content_id: String, detail: String) -> void:

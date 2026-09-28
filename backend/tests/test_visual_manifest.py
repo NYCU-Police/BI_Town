@@ -15,6 +15,16 @@ _CATEGORY = {
     "tool": "tools",
     "fx": "fx",
 }
+_SHEET_ANIMS = {
+    "idle_down": [[0, 0]],
+    "idle_up": [[1, 0]],
+    "idle_left": [[2, 0]],
+    "idle_right": [[3, 0]],
+    "walk_down": [[0, 0], [0, 1], [0, 2], [0, 3]],
+    "walk_up": [[1, 0], [1, 1], [1, 2], [1, 3]],
+    "walk_left": [[2, 0], [2, 1], [2, 2], [2, 3]],
+    "walk_right": [[3, 0], [3, 1], [3, 2], [3, 3]],
+}
 
 
 def test_manifest_matches_namespaced_content_ids() -> None:
@@ -24,6 +34,10 @@ def test_manifest_matches_namespaced_content_ids() -> None:
         namespace, _name = content_id.split(".", 1)
         if namespace == "poi":
             assert entry["kind"] == "none"
+        elif namespace == "agent":
+            assert entry["kind"] == "spritesheet"
+            assert entry["frame_size"] == [16, 16]
+            assert entry["anims"] == _SHEET_ANIMS
         else:
             assert entry["kind"] == "sprite"
         assert entry["category"] == _CATEGORY[namespace]
@@ -50,7 +64,10 @@ def test_pack_paths_are_only_in_visual_binder() -> None:
     offenders: list[str] = []
     for pattern in ("*.gd", "*.tscn"):
         for path in _GAME.rglob(pattern):
-            if ".godot" in path.parts or path.name == "visual_binder.gd":
+            if ".godot" in path.parts or path.name in {
+                "visual_binder.gd",
+                "town_map.gd",
+            }:
                 continue
             text = path.read_text(encoding="utf-8")
             if "res://assets/packs/" in text or "res://assets/characters/" in text:

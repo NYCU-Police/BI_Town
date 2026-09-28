@@ -141,7 +141,16 @@ func local_player_position() -> Vector2:
 	return npc_position(_you)
 
 
+func _sync_clock(data: Dictionary) -> void:
+	if not data.has("time"):
+		return
+	var clock := get_node_or_null("DayNight")
+	if clock != null and clock.has_method("set_clock"):
+		clock.set_clock(str(data["time"]))
+
+
 func apply_snapshot(data: Dictionary) -> void:
+	_sync_clock(data)
 	_you = str(data.get("you", ""))
 	var agents: Variant = data.get("agents", [])
 	if typeof(agents) != TYPE_ARRAY:
@@ -164,6 +173,7 @@ func apply_snapshot(data: Dictionary) -> void:
 
 
 func apply_agent_update(data: Dictionary) -> void:
+	_sync_clock(data)
 	var agents: Variant = data.get("agents", [])
 	if typeof(agents) != TYPE_ARRAY:
 		push_error("agent_update.agents is not an array")

@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/world.gd" id="1_world"]
 [ext_resource type="PackedScene" path="res://scenes/npc.tscn" id="2_npc"]
 [ext_resource type="Script" path="res://scripts/town_map.gd" id="3_map"]
 [ext_resource type="Script" path="res://scripts/camera.gd" id="4_camera"]
+[ext_resource type="Script" path="res://scripts/day_night.gd" id="5_day"]
 
 [node name="World" type="Node2D"]
 y_sort_enabled = true
@@ -14,12 +15,27 @@ npc_scene = ExtResource("2_npc")
 texture_filter = 1
 script = ExtResource("3_map")
 
+[node name="Detail" type="TileMapLayer" parent="."]
+texture_filter = 1
+
+[node name="Water" type="TileMapLayer" parent="."]
+texture_filter = 1
+
 [node name="Objects" type="TileMapLayer" parent="."]
+z_index = 1
 y_sort_enabled = true
 texture_filter = 1
 
+[node name="DayNight" type="CanvasModulate" parent="."]
+color = Color(1, 0.96, 0.9, 1)
+script = ExtResource("5_day")
+
+[node name="NightLights" type="Node2D" parent="."]
+z_index = 2
+
 [node name="POIs" type="Node2D" parent="."]
 z_index = 1
+y_sort_enabled = true
 
 [node name="mina_home" type="Node2D" parent="POIs"]
 position = Vector2(56, 96)

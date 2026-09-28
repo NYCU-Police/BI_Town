@@ -1,0 +1,13 @@
+Tilesets are from the Ninja Adventure Asset Pack by Pixel-boy and AAA.
+
+Source: https://pixel-boy.itch.io/ninja-adventure-asset-pack
+License: Creative Commons Zero (CC0) 1.0
+https://creativecommons.org/publicdomain/zero/1.0/
+
+- floor.png: Backgrounds/Tilesets/TilesetFloor.png
+- floor_detail.png: Backgrounds/Tilesets/TilesetFloorDetail.png
+- house.png: Backgrounds/Tilesets/TilesetHouse.png
+- nature.png: Backgrounds/Tilesets/TilesetNature.png
+- water.png: Backgrounds/Tilesets/TilesetWater.png
+
+Attribution is not required. Credits are also listed in docs/ART.md.

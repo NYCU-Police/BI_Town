@@ -104,9 +104,11 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | `scripts/network_client.gd` | WebSocket client。桌面預設 `ws://127.0.0.1:8000/ws`。Web build 用頁面同源 `/ws`；分進程本機開發用 query `?ws=`。斷線後 2s 起、上限 30s 重連。可送 `intent`，並接收 `intent_result`。 |
 | `scripts/world.gd` | 依 snapshot / agent_update 生成或更新 NPC。自己的角色用 snapshot 的 `you`。滑鼠靠近 POI 時高亮並顯示後端中文地名，F3 改顯示 content id。點擊後在目的地留標記直到抵達。點在角色身上則回傳該 agent。 |
 | `scripts/camera.gd` | 預設以約 3 倍跟隨自己的玩家。滾輪縮放，拖曳後改為自由觀看，空白鍵回到玩家。 |
-| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色讀 manifest 的 `name_color`。自己的角色頭上顯示「你」與向下箭頭，腳下有高亮圈。外觀走 `agent.<id>`。角色 `z_index` 高於 POI 與地圖裝飾。 |
-| `scripts/visual_binder.gd` | 依 content id 找 `packs/user` 再 `packs/default`，都沒有就畫 placeholder。`kind: none` 不畫色塊、不警告；user pack 圖仍畫，且在角色下方。placeholder warning 以 manifest key 為準。manifest 讀不到時 `push_error`。快捷欄圖示也走這裡。 |
-| `data/visual_manifest.json` | 外觀設定（kind、category、footprint、origin、顏色）。不存座標，也不存檔案路徑。9 個 POI 的 kind 是 `none`。 |
+| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。四方向走路用 spritesheet，不再上下彈或左右翻轉。名字顏色讀 manifest 的 `name_color`。自己的角色頭上顯示「你」與向下箭頭，腳下有高亮圈。外觀走 `agent.<id>`。角色與樹、建物同一 `z_index`，依 Y 排序。 |
+| `scripts/visual_binder.gd` | 依 content id 找 `packs/user` 再 `packs/default`，都沒有就畫 placeholder。`kind: none` 不畫色塊、不警告；user pack 圖仍畫，並與角色依 Y 排序。`kind: spritesheet` 依 `frame_size` 與 `anims` 切幀。placeholder warning 以 manifest key 為準。manifest 讀不到時 `push_error`。快捷欄圖示也走這裡。 |
+| `data/visual_manifest.json` | 外觀設定（kind、category、footprint、origin、顏色；角色另有 frame_size 與 anims）。不存座標，也不存檔案路徑。9 個 POI 的 kind 是 `none`。四個 agent 是 `spritesheet`。 |
+| `scripts/town_map.gd` | 用 Ninja Adventure 的草地、石板路、建物、樹與水面鋪圖。建物落在原本地塊。沒有路燈、長椅、噴水池立繪。廣場水池是水面格。 |
+| `scripts/day_night.gd` | 依伺服器時刻用 CanvasModulate 上色，夜晚點亮窗戶。不推進時鐘。 |
 | `assets/fonts/` | Fusion Pixel 12px（OFL）。字級 12 與 24，nearest。 |
 | `scripts/hud.gd` | 時鐘、連線、人數、事件文字、需求與快捷欄。快捷欄每格有編號、圖示與數量，數量在格子右下角，選中格有外框。底部操作說明有半透明深色底。點角色後左上角顯示名字與 hunger/energy/social，低於 30 標紅。事件句子依 event type 模板生成。時鐘只在 snapshot 與 agent_update 更新。 |
 | `scripts/player_input.gd` | 點角色查看需求，點 POI 移動。1–3 使用工具，4 使用目前選中物品，E 撿麵包，G 給予，Q 切換物品。失敗原因依 `intent_result.reason` 顯示具體中文。 |
@@ -237,7 +239,7 @@ TileMap 走 content id 這一輪不做。地面與建物仍由 `town_map.gd` 直
 
 順序固定，LLM 排在最後：
 
-1. 視覺基礎：tilemap 與 NPC sprite 已取代 ColorRect 方塊與純色背景。角色是 Kenney Roguelike Characters（CC0）的 16×16 裁切，見 `game/assets/packs/default/actors/`。TileMap 本身還沒改走 content id。
+1. 視覺基礎：tilemap 與 NPC sprite 已取代 ColorRect 方塊與純色背景。角色是 Ninja Adventure（CC0）四方向走路表，見 `game/assets/packs/default/actors/`。地圖 tileset 也來自同一包。TileMap 本身還沒改走 content id。表情、音效與 HUD 框還沒接。
 2. Needs 系統。
 3. NPC 狀態圖示。
 4. 之後才做產品意義上的 LLM 居民。目前的 `BRAIN_MODE=llm` 只是可選的本機路徑，預設仍是 rules，不算這一步完成。
