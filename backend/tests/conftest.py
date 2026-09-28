@@ -15,3 +15,4 @@ config.SIMULATION_LOOP_ENABLED = False
 def fresh_world() -> None:
     reset_world()
     manager._connections.clear()
+    manager.players.clear()

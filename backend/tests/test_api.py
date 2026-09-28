@@ -102,7 +102,12 @@ def test_agents() -> None:
             "target_location",
             "state",
             "activity",
+            "needs",
+            "items",
+            "tools",
+            "collapsed",
         }
+        assert set(agent["needs"].keys()) == {"hunger", "energy", "social"}
         assert set(agent["position"].keys()) == {"x", "y"}
         assert isinstance(agent["position"]["x"], (int, float))
         assert isinstance(agent["position"]["y"], (int, float))

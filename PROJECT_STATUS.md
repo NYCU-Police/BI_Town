@@ -26,12 +26,14 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
 ```
 
 - 模擬迴圈：`simulation_loop` 每 `SIMULATION_TICK_SECONDS`（1 秒）呼叫一次 `World.tick()`。每個 tick 推進 `GAME_MINUTES_PER_TICK`（1 遊戲分鐘）。
-- `World.tick()` 在預設 `rules` 的順序：依當下遊戲時間套用行程 → 移動 walking agent → 推進時鐘。`llm` 不套行程；決策在另一個 async worker 裡跑，`tick()` 只套用已經回來的結果、走路、把下一次請求放進佇列，然後推進時鐘。
+- `World.tick()` 在預設 `rules` 的順序：NPC 先看是否倒下，再看手上有沒有食物、飢餓是否低於門檻，否則才套行程 → 移動 walking agent → 需求結算 → 推進時鐘。`llm` 不套這條優先序；決策在另一個 async worker 裡跑，`tick()` 只套用已經回來的結果。需求照樣結算，倒下時不採用 LLM 的移動。
 - Agent 狀態只有 `idle` 與 `walking`。行程命中時從 idle 改為 walking，並記一筆 `left`。抵達 POI（距離 ≤ `ARRIVAL_DISTANCE_THRESHOLD` 或 ≤ 本 tick 步長）後改回 idle，記一筆 `entered`。
+- WebSocket 是雙向的。連線會生成 `player_<conn_id>`，斷線就從世界上移除。客戶端可送 `intent`，伺服器回 `intent_result` 後立刻廣播變動。見 `docs/ADR/0005-bidirectional-websocket.md`。
 - WebSocket 訊息（`backend/app/models/schemas.py`）：
-  - `world_snapshot`：連線當下整包狀態（day、time、agents、events）。
-  - `agent_update`：每個 tick 都送，附上 day 與 time。`agents` 只列本 tick 有移動或改狀態的人，可以是空陣列。
-  - `world_event`：本 tick 新增的 `left` / `entered`。`llm` 模式另有 `said`（`content`，`target_agent_id` 可省略）與 `thought`（`content`）。`left` / `entered` 的 JSON 不帶這兩個可選欄位。
+  - `world_snapshot`：連線當下整包狀態（day、time、agents、events、`you`）。
+  - `agent_update`：每個 tick 都送，附上 day 與 time。`agents` 只列本 tick 有移動、改狀態，或需求整數有變的人，可以是空陣列。需求只在整數變化時放進該 agent，並且是整數。`removed` 只在有人斷線時出現。
+  - `world_event`：`left` / `entered`，以及 `ate` / `gave` / `picked_up` / `produced`（`item`，`gave` 另有 `target_agent_id`）。`llm` 模式另有 `said` 與 `thought`。句子由客戶端依 event type 組，伺服器不送現成句子。
+  - `intent` / `intent_result`：見 ADR 0005。
 - HTTP API（prefix `/api`）：`GET /health`、`GET /world`、`GET /agents`、`GET /events`。`/health` 帶 `Cache-Control: no-store`。`git_commit` 來自映像建置參數，`deployed_at` 來自容器建立時的環境變數；沒設定時是 `unknown`。Godot 殼檔（`/`、`index.html`、`index.js`、`index.wasm`、`index.pck`、`build_info.json`）回 `Cache-Control: no-cache`，並用 ETag 回 304。
 - Web export 的 HUD 向 `/build_info.json` 讀前端 commit、向 `/api/health` 讀後端 commit。兩邊不同時，右側身分列用琥珀色。請求失敗只把缺的那側顯示成 `unknown`，遊戲繼續跑。CI 在 export 前把 `GITHUB_SHA` 寫進 `game/build_info.json`，export 後再複製到產物目錄。
 - Godot web export 由 backend 以靜態檔提供。`STATIC_WEB_DIR` 有值且目錄內有 `index.html` 才 mount 在 `/`。本機只跑 uvicorn、沒設這個變數時，只提供 API 與 WebSocket。
@@ -61,13 +63,14 @@ POI 座標（backend 與 Godot 必須一致）：
 | `config.py` | 全部設定與數字。route 與 simulation 不放 magic number。 |
 | `state.py` | process 級 `world` singleton。`reset_world()` 給測試用。 |
 | `api/routes.py` | `/api/health`、`/world`、`/agents`、`/events`。 |
-| `models/schemas.py` | Pydantic models 與三種 WebSocket message。 |
+| `models/schemas.py` | Pydantic models、世界訊息，以及 `intent` / `intent_result`。 |
 | `simulation/clock.py` | 遊戲時鐘。`24:00` 進下一天 `00:00`。純函式。 |
-| `simulation/world.py` | `World` 與 `tick()`。同步、可單測。回傳 `TickResult`（新事件、有變動的 agents）。 |
+| `simulation/world.py` | `World`、`tick()`、`apply_intent()`。同步、可單測。 |
 | `simulation/fake_agent.py` | 行程表、朝目標移動、`left` / `entered`。無 LLM。 |
 | `simulation/poi.py` | POI id、名稱、座標。 |
+| `simulation/needs.py` | 飢餓、體力、社交的每分鐘結算。 |
 | `simulation/loop.py` | async 迴圈。tick 後廣播。只在 `changed_agents` 非空時送 `agent_update`。 |
-| `websocket/endpoint.py` | `WS /ws`。連上先送 `world_snapshot`，之後只收連線（client 不驅動模擬）。 |
+| `websocket/endpoint.py` | `WS /ws`。連上建立玩家並送 `world_snapshot`，之後接受 `intent`。 |
 | `websocket/manager.py` | 連線清單與 `broadcast`。 |
 
 ### `backend/` 其他
@@ -156,7 +159,7 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 - 測試會把 `SIMULATION_LOOP_ENABLED` 設為 `False`，避免背景 tick 干擾。
 - Godot 的 POI 座標要與 `backend/app/simulation/poi.py` 相同。`world.gd` 在 `_ready` 會對不上就 `push_error`。
 - 不 commit secrets。`.env` 與 `deploy/.env` 不進 git。staging 的 `TUNNEL_TOKEN`、Tailscale、SSH 只在 GitHub environment `staging` 與 host 上。
-- WebSocket 是 server → client。Client 連上後送出的文字不被當成指令。
+- WebSocket 雙向只接受 `intent`。模擬結果仍只由伺服器決定；客戶端不能直接改座標或需求。見 `docs/ADR/0005-bidirectional-websocket.md`。
 
 ## 6. 本機開發怎麼跑
 

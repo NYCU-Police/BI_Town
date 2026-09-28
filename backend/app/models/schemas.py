@@ -1,9 +1,21 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 AgentState = Literal["idle", "walking", "doing"]
-WorldEventType = Literal["left", "entered", "said", "thought", "activity"]
+WorldEventType = Literal[
+    "left",
+    "entered",
+    "said",
+    "thought",
+    "activity",
+    "ate",
+    "gave",
+    "picked_up",
+    "produced",
+]
+IntentAction = Literal["move_to", "pick_up", "eat", "give", "use_tool"]
+TargetType = Literal["agent", "poi"]
 
 
 class HealthResponse(BaseModel):
@@ -26,6 +38,17 @@ class WorldState(BaseModel):
     agent_count: int
 
 
+class Needs(BaseModel):
+    hunger: int
+    energy: int
+    social: int
+
+
+class ItemStack(BaseModel):
+    id: str
+    count: int
+
+
 class Agent(BaseModel):
     id: str
     name: str
@@ -34,6 +57,10 @@ class Agent(BaseModel):
     target_location: str
     state: AgentState
     activity: str = ""
+    needs: Needs | None = None
+    items: list[ItemStack] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    collapsed: bool = False
 
 
 class WorldEvent(BaseModel):
@@ -44,6 +71,7 @@ class WorldEvent(BaseModel):
     target_agent_id: str | None = None
     content: str | None = None
     duration_minutes: int | None = None
+    item: str | None = None
 
 
 class WorldSnapshot(BaseModel):
@@ -51,6 +79,7 @@ class WorldSnapshot(BaseModel):
     time: str
     agents: list[Agent]
     events: list[WorldEvent]
+    you: str | None = None
 
 
 class WorldSnapshotMessage(BaseModel):
@@ -62,6 +91,7 @@ class AgentUpdateData(BaseModel):
     day: int
     time: str
     agents: list[Agent]
+    removed: list[str] | None = None
 
 
 class AgentUpdateMessage(BaseModel):
@@ -72,3 +102,21 @@ class AgentUpdateMessage(BaseModel):
 class WorldEventMessage(BaseModel):
     type: Literal["world_event"] = "world_event"
     data: WorldEvent
+
+
+class TargetRef(BaseModel):
+    type: TargetType
+    id: str
+
+
+class Intent(BaseModel):
+    action: IntentAction
+    target: TargetRef | None = None
+    item: str | None = None
+
+
+class IntentResultMessage(BaseModel):
+    type: Literal["intent_result"] = "intent_result"
+    client_seq: int
+    ok: bool
+    reason: str | None = None

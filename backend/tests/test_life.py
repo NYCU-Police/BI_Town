@@ -5,11 +5,13 @@ import asyncio
 import pytest
 
 from app.config import (
+    CAFE_HUNGER_RESTORE_PER_MINUTE,
     EAT_FULLNESS_RESTORE,
-    ENERGY_DECAY_PER_MINUTE,
     FULLNESS_DECAY_PER_MINUTE,
+    HOME_ENERGY_RESTORE_PER_MINUTE,
     REST_ENERGY_PER_MINUTE,
     SLEEP_ENERGY_PER_MINUTE,
+    SOCIAL_COMPANY_PER_MINUTE,
     SOCIAL_DECAY_PER_MINUTE,
     TALK_SOCIAL_RESTORE,
 )
@@ -112,7 +114,7 @@ def test_needs_decay_and_recover_without_numbers_in_the_prompt() -> None:
     social = mina.social
 
     world.tick()
-    assert mina.energy == pytest.approx(energy - ENERGY_DECAY_PER_MINUTE)
+    assert mina.energy == pytest.approx(energy + HOME_ENERGY_RESTORE_PER_MINUTE)
     assert mina.fullness == pytest.approx(fullness - FULLNESS_DECAY_PER_MINUTE)
     assert mina.social == pytest.approx(social - SOCIAL_DECAY_PER_MINUTE)
 
@@ -134,7 +136,7 @@ def test_needs_decay_and_recover_without_numbers_in_the_prompt() -> None:
     )
     world.tick()
     assert mina.fullness == pytest.approx(
-        40 + EAT_FULLNESS_RESTORE - FULLNESS_DECAY_PER_MINUTE
+        40 + EAT_FULLNESS_RESTORE + CAFE_HUNGER_RESTORE_PER_MINUTE
     )
     assert mina.state == "doing"
     assert mina.activity_id == "order_coffee"
@@ -169,10 +171,10 @@ def test_needs_decay_and_recover_without_numbers_in_the_prompt() -> None:
     mina.social = 40
     world.tick()
     assert alex.social == pytest.approx(
-        40 + TALK_SOCIAL_RESTORE - SOCIAL_DECAY_PER_MINUTE
+        40 + TALK_SOCIAL_RESTORE + SOCIAL_COMPANY_PER_MINUTE
     )
     assert mina.social == pytest.approx(
-        40 + TALK_SOCIAL_RESTORE - SOCIAL_DECAY_PER_MINUTE
+        40 + TALK_SOCIAL_RESTORE + SOCIAL_COMPANY_PER_MINUTE
     )
     assert any("（我說）對 Mina：一起拍照" in item for item in alex.memories)
     assert any("（Alex 說）一起拍照" in item for item in mina.memories)
