@@ -22,7 +22,10 @@ def test_manifest_matches_namespaced_content_ids() -> None:
     assert set(manifest) == set(content_ids())
     for content_id, entry in manifest.items():
         namespace, _name = content_id.split(".", 1)
-        assert entry["kind"] == "sprite"
+        if namespace == "poi":
+            assert entry["kind"] == "none"
+        else:
+            assert entry["kind"] == "sprite"
         assert entry["category"] == _CATEGORY[namespace]
         assert entry["footprint"] == [16, 16] or entry["footprint"] == [32, 32]
         assert entry["origin"] == [0.5, 1.0]
@@ -37,6 +40,7 @@ def test_manifest_matches_namespaced_content_ids() -> None:
         for content_id, entry in manifest.items()
         if content_id.startswith("poi.")
     }
+    assert len(poi_colors) == 9
     player = manifest["agent.player"]
     assert str(player["placeholder_color"]).lower() not in poi_colors
     assert str(player["name_color"]).lower() not in poi_colors

@@ -18,6 +18,7 @@ from difflib import SequenceMatcher
 from typing import Any, Literal
 
 import httpx
+import opencc
 from pydantic import BaseModel, Field
 
 from app.config import (
@@ -70,7 +71,16 @@ from app.simulation.poi import POIS, activities_for, home_for
 
 logger = logging.getLogger(__name__)
 
+# s2twp: simplified to Taiwan traditional, including phrase-level words.
+_TO_TRADITIONAL = opencc.OpenCC("s2twp")
+
 Decider = Callable[[list[dict[str, str]], dict[str, Any]], Awaitable[str]]
+
+
+def to_traditional(text: str) -> str:
+    if text == "":
+        return ""
+    return _TO_TRADITIONAL.convert(text)
 
 SYSTEM_PROMPT = """\
 你是小鎮居民。只輸出一個 JSON 物件，不要加其他文字。
@@ -368,7 +378,13 @@ def parse_decision(raw: str) -> Decision:
             line for line in text.splitlines() if not line.strip().startswith("```")
         ]
         text = "\n".join(lines).strip()
-    return Decision.model_validate_json(text)
+    decision = Decision.model_validate_json(text)
+    return decision.model_copy(
+        update={
+            "say": to_traditional(decision.say),
+            "thought": to_traditional(decision.thought),
+        }
+    )
 
 
 def target_enum(actor_id: str, residents: list[Resident]) -> list[str]:

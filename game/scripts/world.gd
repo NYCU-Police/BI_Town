@@ -37,6 +37,8 @@ var _destination := ""
 var _hover_id := ""
 var _hover_label: Label
 var _destination_mark: Node2D
+var _place_labels: Dictionary = {}
+var _show_content_ids := false
 
 
 func _ready() -> void:
@@ -59,6 +61,7 @@ func _ready() -> void:
 			node.add_child(sprite)
 		sprite.texture_filter = TEXTURE_FILTER_NEAREST
 		VisualBinder.apply(sprite, node, "poi.%s" % poi_id)
+		_place_labels[poi_id] = _make_place_label(poi_id)
 		var ring := Line2D.new()
 		ring.name = "HoverRing"
 		ring.width = 2.0
@@ -74,13 +77,22 @@ func _ready() -> void:
 	_hover_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hover_label.size = Vector2(120, 18)
 	_hover_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hover_label.add_theme_font_size_override("font_size", 14)
+	_hover_label.add_theme_font_size_override("font_size", 12)
 	_hover_label.add_theme_color_override("font_color", Color.WHITE)
 	_hover_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
 	_hover_label.add_theme_constant_override("outline_size", 5)
 	add_child(_hover_label)
 	_destination_mark = _make_destination_mark()
 	add_child(_destination_mark)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if key.pressed and not key.echo and key.keycode == KEY_F3:
+			_show_content_ids = not _show_content_ids
+			_refresh_place_names()
+			get_viewport().set_input_as_handled()
 
 
 func _process(_delta: float) -> void:
@@ -277,16 +289,49 @@ func _set_hover(poi_id: String) -> void:
 	var sprite := node.get_node_or_null("Sprite") as CanvasItem
 	if sprite != null:
 		sprite.modulate = Color(1.45, 1.38, 1.05)
-	_hover_label.text = str(POI_NAMES.get(poi_id, poi_id))
+	_hover_label.text = _place_caption(poi_id)
 	var anchor: Vector2 = POIS[poi_id]
 	_hover_label.position = anchor + Vector2(-60, -54)
 	_hover_label.visible = true
 
 
+func _place_caption(poi_id: String) -> String:
+	if _show_content_ids:
+		return "poi.%s" % poi_id
+	return str(POI_NAMES.get(poi_id, poi_id))
+
+
+func _refresh_place_names() -> void:
+	for poi_id in _place_labels:
+		var label := _place_labels[poi_id] as Label
+		if label != null:
+			label.text = _place_caption(str(poi_id))
+	if _hover_label != null and not _hover_id.is_empty():
+		_hover_label.text = _place_caption(_hover_id)
+
+
+func _make_place_label(poi_id: String) -> Label:
+	var label := Label.new()
+	label.name = "PlaceName"
+	label.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	label.z_index = 30
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.text = _place_caption(poi_id)
+	label.position = POIS[poi_id] + Vector2(-60, -68)
+	label.size = Vector2(120, 16)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", Color.WHITE)
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+	label.add_theme_constant_override("outline_size", 2)
+	add_child(label)
+	return label
+
+
 func _pointer_over_chrome() -> bool:
 	var view := get_viewport().get_visible_rect().size
 	var mouse := get_viewport().get_mouse_position()
-	return mouse.y >= view.y - 150.0 and mouse.x < 660.0
+	return mouse.y >= view.y - 168.0 and mouse.x < 660.0
 
 
 func _make_destination_mark() -> Node2D:

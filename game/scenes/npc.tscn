@@ -17,6 +17,7 @@ corner_radius_bottom_right = 6
 corner_radius_bottom_left = 6
 
 [node name="NPC" type="Node2D"]
+z_index = 10
 script = ExtResource("1_npc")
 
 [node name="Shadow" type="Polygon2D" parent="."]
@@ -29,36 +30,36 @@ position = Vector2(0, -8)
 scale = Vector2(1, 1)
 
 [node name="NamePlate" type="Panel" parent="."]
-offset_left = -16.0
-offset_top = -36.0
-offset_right = 16.0
-offset_bottom = -22.0
+offset_left = -28.0
+offset_top = -40.0
+offset_right = 28.0
+offset_bottom = -24.0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_name")
 
 [node name="Label" type="Label" parent="."]
-offset_left = -16.0
-offset_top = -36.0
-offset_right = 16.0
-offset_bottom = -22.0
+offset_left = -28.0
+offset_top = -40.0
+offset_right = 28.0
+offset_bottom = -24.0
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.91, 0.45, 0.48, 1)
-theme_override_font_sizes/font_size = 8
+theme_override_font_sizes/font_size = 12
 text = "NPC"
 horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="Activity" type="Label" parent="."]
 visible = false
-offset_left = -32.0
-offset_top = -50.0
-offset_right = 32.0
-offset_bottom = -38.0
+offset_left = -40.0
+offset_top = -58.0
+offset_right = 40.0
+offset_bottom = -42.0
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.62, 0.62, 0.58, 1)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
-theme_override_constants/outline_size = 3
-theme_override_font_sizes/font_size = 8
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 12
 text = ""
 horizontal_alignment = 1
 vertical_alignment = 1
@@ -87,7 +88,7 @@ offset_right = 30.0
 offset_bottom = -26.0
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.2, 0.2, 0.22, 1)
-theme_override_font_sizes/font_size = 11
+theme_override_font_sizes/font_size = 12
 text = ""
 horizontal_alignment = 1
 vertical_alignment = 1
@@ -99,7 +100,7 @@ offset_right = 30.0
 offset_bottom = -16.0
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.12, 0.13, 0.16, 1)
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 12
 text = ""
 horizontal_alignment = 1
 vertical_alignment = 1

@@ -5,14 +5,17 @@ extends Node2D
 const SPEECH_HOLD_SECONDS := 6.0
 const SPEECH_FADE_SECONDS := 0.4
 ## Top of the name plate, just above the 16px sprite. The speech tail sits above this.
-const LABEL_TOP := -36.0
+const LABEL_TOP := -40.0
+## Above POI sprites (z 1) and map decorations (z 0). Y-sort still orders residents.
+const CHARACTER_Z := 10
+const LOCAL_PLAYER_Z := 11
 const SLOT_STEP := 18.0
 const BUBBLE_STACK := 78.0
 const BUBBLE_MAX_WIDTH := 220.0
 const BUBBLE_PAD_X := 10.0
 const BUBBLE_PAD_Y := 6.0
-const NAME_FONT_SIZE := 11
-const TEXT_FONT_SIZE := 14
+const NAME_FONT_SIZE := 12
+const TEXT_FONT_SIZE := 12
 const TAIL_HALF_WIDTH := 8.0
 const TAIL_HEIGHT := 10.0
 const NAME_GAP := 2.0
@@ -46,6 +49,7 @@ var _you_arrow: Polygon2D
 
 
 func _ready() -> void:
+	z_index = CHARACTER_Z
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.scale = Vector2.ONE
 	_sprite.position = Vector2.ZERO
@@ -105,15 +109,15 @@ func set_local_player(enabled: bool) -> void:
 	if enabled:
 		_show_you()
 		return
-	z_index = 0
+	z_index = CHARACTER_Z
 	if _you_ring != null:
 		_you_ring.visible = false
 	if _you_arrow != null:
 		_you_arrow.visible = false
-	_name_plate.offset_top = -36.0
-	_name_plate.offset_bottom = -22.0
-	_label.offset_top = -36.0
-	_label.offset_bottom = -22.0
+	_name_plate.offset_top = -40.0
+	_name_plate.offset_bottom = -24.0
+	_label.offset_top = -40.0
+	_label.offset_bottom = -24.0
 
 
 func _show_you() -> void:
@@ -121,14 +125,14 @@ func _show_you() -> void:
 	var tint := VisualBinder.name_color("agent.player")
 	_label.add_theme_color_override("font_color", tint)
 	_name_plate.offset_top = -52.0
-	_name_plate.offset_bottom = -38.0
+	_name_plate.offset_bottom = -36.0
 	_label.offset_top = -52.0
-	_label.offset_bottom = -38.0
+	_label.offset_bottom = -36.0
 	_you_arrow.color = tint
 	_you_arrow.visible = true
 	_you_ring.default_color = Color(tint.r, tint.g, tint.b, 0.95)
 	_you_ring.visible = true
-	z_index = 6
+	z_index = LOCAL_PLAYER_Z
 	var fallback := get_node_or_null("Fallback")
 	if fallback != null:
 		for child in fallback.get_children():

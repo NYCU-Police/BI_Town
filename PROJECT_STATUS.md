@@ -32,7 +32,7 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
 - WebSocket 訊息（`backend/app/models/schemas.py`）：
   - `world_snapshot`：連線當下整包狀態（day、time、agents、events、`you`）。
   - `agent_update`：每個 tick 都送，附上 day 與 time。`agents` 只列本 tick 有移動、改狀態，或需求整數有變的人，可以是空陣列。需求只在整數變化時放進該 agent，並且是整數。`removed` 只在有人斷線時出現。
-  - `world_event`：`left` / `entered`，以及 `ate` / `gave` / `picked_up` / `produced`（`item`，`gave` 另有 `target_agent_id`）。`llm` 模式另有 `said` 與 `thought`。句子由客戶端依 event type 組，伺服器不送現成句子。
+  - `world_event`：`left` / `entered`，以及 `ate` / `gave` / `picked_up` / `produced`（`item`，`gave` 另有 `target_agent_id`）。`llm` 模式另有 `said` 與 `thought`。句子由客戶端依 event type 組，伺服器不送現成句子。`said` / `thought` 的 content 在寫入前用 OpenCC `s2twp` 轉成繁體中文。
   - `intent` / `intent_result`：見 ADR 0005。
 - HTTP API（prefix `/api`）：`GET /health`、`GET /world`、`GET /agents`、`GET /events`。`/health` 帶 `Cache-Control: no-store`。`git_commit` 來自映像建置參數，`deployed_at` 來自容器建立時的環境變數；沒設定時是 `unknown`。Godot 殼檔（`/`、`index.html`、`index.js`、`index.wasm`、`index.pck`、`build_info.json`）回 `Cache-Control: no-cache`，並用 ETag 回 304。
 - Web export 的 HUD 向 `/build_info.json` 讀前端 commit、向 `/api/health` 讀後端 commit。兩邊不同時，右側身分列用琥珀色。請求失敗只把缺的那側顯示成 `unknown`，遊戲繼續跑。CI 在 export 前把 `GITHUB_SHA` 寫進 `game/build_info.json`，export 後再複製到產物目錄。
@@ -102,12 +102,13 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | `scenes/ui/hud.tscn` | 時鐘、連線狀態、agent 數、事件日誌、點角色後的需求卡。 |
 | `scripts/main.gd` | 把 WebSocket signal 接到 World 與 HUD。 |
 | `scripts/network_client.gd` | WebSocket client。桌面預設 `ws://127.0.0.1:8000/ws`。Web build 用頁面同源 `/ws`；分進程本機開發用 query `?ws=`。斷線後 2s 起、上限 30s 重連。可送 `intent`，並接收 `intent_result`。 |
-| `scripts/world.gd` | 依 snapshot / agent_update 生成或更新 NPC。自己的角色用 snapshot 的 `you`。滑鼠靠近 POI 時高亮並顯示名稱，點擊後在目的地留標記直到抵達。點在角色身上則回傳該 agent。 |
+| `scripts/world.gd` | 依 snapshot / agent_update 生成或更新 NPC。自己的角色用 snapshot 的 `you`。滑鼠靠近 POI 時高亮並顯示後端中文地名，F3 改顯示 content id。點擊後在目的地留標記直到抵達。點在角色身上則回傳該 agent。 |
 | `scripts/camera.gd` | 預設以約 3 倍跟隨自己的玩家。滾輪縮放，拖曳後改為自由觀看，空白鍵回到玩家。 |
-| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色讀 manifest 的 `name_color`。自己的角色頭上顯示「你」與向下箭頭，腳下有高亮圈。外觀走 `agent.<id>`。 |
-| `scripts/visual_binder.gd` | 依 content id 找 `packs/user` 再 `packs/default`，都沒有就畫 placeholder。manifest 讀不到時 `push_error`。快捷欄圖示也走這裡。 |
-| `data/visual_manifest.json` | 外觀設定（kind、category、footprint、origin、顏色）。不存座標，也不存檔案路徑。 |
-| `scripts/hud.gd` | 時鐘、連線、人數、事件文字、需求與快捷欄。快捷欄每格有編號、圖示與數量，選中格有外框。點角色後左上角顯示名字與 hunger/energy/social，低於 30 標紅。事件句子依 event type 模板生成。時鐘只在 snapshot 與 agent_update 更新。 |
+| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色讀 manifest 的 `name_color`。自己的角色頭上顯示「你」與向下箭頭，腳下有高亮圈。外觀走 `agent.<id>`。角色 `z_index` 高於 POI 與地圖裝飾。 |
+| `scripts/visual_binder.gd` | 依 content id 找 `packs/user` 再 `packs/default`，都沒有就畫 placeholder。`kind: none` 不畫色塊、不警告；user pack 圖仍畫，且在角色下方。placeholder warning 以 manifest key 為準。manifest 讀不到時 `push_error`。快捷欄圖示也走這裡。 |
+| `data/visual_manifest.json` | 外觀設定（kind、category、footprint、origin、顏色）。不存座標，也不存檔案路徑。9 個 POI 的 kind 是 `none`。 |
+| `assets/fonts/` | Fusion Pixel 12px（OFL）。字級 12 與 24，nearest。 |
+| `scripts/hud.gd` | 時鐘、連線、人數、事件文字、需求與快捷欄。快捷欄每格有編號、圖示與數量，數量在格子右下角，選中格有外框。底部操作說明有半透明深色底。點角色後左上角顯示名字與 hunger/energy/social，低於 30 標紅。事件句子依 event type 模板生成。時鐘只在 snapshot 與 agent_update 更新。 |
 | `scripts/player_input.gd` | 點角色查看需求，點 POI 移動。1–3 使用工具，4 使用目前選中物品，E 撿麵包，G 給予，Q 切換物品。失敗原因依 `intent_result.reason` 顯示具體中文。 |
 | `scripts/event_log.gd` | 事件日誌，最多 20 行。 |
 
@@ -133,7 +134,7 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | --- | --- |
 | `README.md` | 短概述與本機 uvicorn / pytest。 |
 | `ruff.toml` | Python 3.12，line length 88。規則 E、F、I、UP、B。 |
-| `.gitignore` | `.env`、`.venv/`、`game/build/`、`.godot/`。保留 `.env.example` 與 `deploy/.env.example`。 |
+| `.gitignore` | `.env`、`.venv/`、`game/build/`、`.godot/`、`game/assets/_incoming/`。保留 `.env.example` 與 `deploy/.env.example`。 |
 | `.env.example` | 根目錄範本。v0.1 沒有必填 secret。 |
 | `LICENSE` | MIT。 |
 
