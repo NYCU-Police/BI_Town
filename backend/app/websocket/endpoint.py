@@ -11,9 +11,10 @@ from app.models.schemas import (
     Intent,
     IntentResultMessage,
     SessionMessage,
+    WorldEvent,
     WorldSnapshotMessage,
 )
-from app.simulation.player_talk import open_token
+from app.simulation.player_talk import history_payload, open_token
 from app.websocket.broadcast import broadcast_changes
 from app.websocket.manager import manager
 
@@ -46,6 +47,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     try:
         token: str | None = None
         old_id: str | None = None
+        old_events: list[WorldEvent] = []
         if player_id is not None:
             token = open_token(state.world, websocket.query_params.get("player_token"))
             previous = manager.claim_token(websocket, token)
@@ -53,7 +55,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 old_id = manager.players.pop(previous, None)
                 manager.retired.add(previous)
                 if old_id is not None:
-                    state.world.remove_player(old_id)
+                    ended = state.world.remove_player(old_id)
+                    if ended is not None:
+                        old_events = ended
             state.world.player_tokens[player_id] = token
             await websocket.send_json(SessionMessage(player_token=token).model_dump())
             entered = state.world.add_player(player_id)
@@ -61,11 +65,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             entered = None
         snapshot = state.world.snapshot()
         snapshot.you = player_id
+        snapshot.dialogue_history = history_payload(state.world, token)
         message = WorldSnapshotMessage(data=snapshot)
         await websocket.send_json(message.model_dump(exclude_none=True))
         if entered is not None or old_id is not None:
             await broadcast_changes(
-                [],
+                old_events,
                 [entered] if entered is not None else [],
                 removed=[old_id] if old_id is not None else None,
                 exclude=websocket,
@@ -79,8 +84,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         logger.exception("WebSocket error")
     finally:
         removed_id = manager.disconnect(websocket)
-        if removed_id is not None and state.world.remove_player(removed_id):
-            await broadcast_changes([], [], removed=[removed_id])
+        ended = None if removed_id is None else state.world.remove_player(removed_id)
+        if ended is not None:
+            await broadcast_changes(ended, [], removed=[removed_id])
 
 
 async def _handle_text(
