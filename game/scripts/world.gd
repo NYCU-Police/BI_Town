@@ -14,32 +14,6 @@ const POIS := {
 	"park": Vector2(392, 320),
 }
 
-const PLACE_NAMES := {
-	"mina_home": "Mina 的家",
-	"alex_home": "Alex 的家",
-	"rin_home": "Rin 的家",
-	"cafe": "咖啡廳",
-	"store": "便利商店",
-	"office": "辦公室",
-	"library": "圖書館",
-	"plaza": "廣場",
-	"park": "公園",
-}
-
-## Building labels are centered on the roof and sit on its top edge.
-## South-row roofs are the bottom row, so those labels stay on the building.
-const _LABEL_OFFSET := {
-	"mina_home": Vector2(-72, -96),
-	"alex_home": Vector2(-72, -96),
-	"rin_home": Vector2(-72, -96),
-	"cafe": Vector2(-72, -96),
-	"store": Vector2(-72, -96),
-	"office": Vector2(-72, 30),
-	"library": Vector2(-72, 30),
-	"plaza": Vector2(-72, -28),
-	"park": Vector2(-128, -52),
-}
-
 @export var npc_scene: PackedScene
 
 var _npcs: Dictionary = {}
@@ -51,25 +25,20 @@ func _ready() -> void:
 	if pois_root == null:
 		push_error("World is missing the POIs node")
 		return
-	for child in pois_root.get_children():
-		child.queue_free()
 	for poi_id in POIS:
-		var node := Node2D.new()
-		node.name = poi_id
+		var node := pois_root.get_node_or_null(poi_id) as Node2D
+		if node == null:
+			node = Node2D.new()
+			node.name = poi_id
+			pois_root.add_child(node)
 		node.position = POIS[poi_id]
-		var label := Label.new()
-		label.text = str(PLACE_NAMES[poi_id])
-		label.position = _LABEL_OFFSET[poi_id]
-		label.size = Vector2(144, 16)
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.add_theme_color_override("font_color", Color.WHITE)
-		label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
-		label.add_theme_constant_override("outline_size", 4)
-		label.add_theme_font_size_override("font_size", 12)
-		node.add_child(label)
-		pois_root.add_child(node)
+		var sprite := node.get_node_or_null("Sprite") as Sprite2D
+		if sprite == null:
+			sprite = Sprite2D.new()
+			sprite.name = "Sprite"
+			node.add_child(sprite)
+		sprite.texture_filter = TEXTURE_FILTER_NEAREST
+		VisualBinder.apply(sprite, node, "poi.%s" % poi_id)
 
 
 func apply_snapshot(data: Dictionary) -> void:

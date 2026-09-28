@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c1ih3n2okb80j"
-path="res://.godot/imported/alex.png-63e8964640095fe1017911dc916c0244.ctex"
+uid="uid://crjmrsyvbns2q"
+path="res://.godot/imported/rin.png-d05903e948b98537f4fa72ee6cca2ee2.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/characters/alex.png"
-dest_files=["res://.godot/imported/alex.png-63e8964640095fe1017911dc916c0244.ctex"]
+source_file="res://assets/packs/default/actors/rin.png"
+dest_files=["res://.godot/imported/rin.png-d05903e948b98537f4fa72ee6cca2ee2.ctex"]
 
 [params]
 
