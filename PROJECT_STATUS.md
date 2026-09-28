@@ -94,20 +94,21 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | 路徑 | 職責 |
 | --- | --- |
 | `project.godot` | 專案設定。features `4.7`。 |
-| `export_presets.cfg` | Web preset，輸出 `build/web/index.html`。 |
+| `export_presets.cfg` | Web preset，輸出 `build/web/index.html`。`exclude_filter` 排除 `build/*`，避免上一次的 web 產物再被打進 pck。 |
 | `serve_web.py` | 本機提供 web export，帶 COOP/COEP。預設 `127.0.0.1:8080`。 |
 | `scenes/main.tscn` | `Main` + `NetworkClient` + `World` + `HUD`。 |
 | `scenes/world.tscn` | 地圖與 POI 位置節點。POI 外觀由 `VisualBinder` 畫，場景裡不放圖。 |
 | `scenes/npc.tscn` | NPC：16×16 像素人物（3 倍、nearest）、腳下陰影、圓角名字底牌。 |
-| `scenes/ui/hud.tscn` | 時鐘、連線狀態、agent 數、事件日誌。 |
+| `scenes/ui/hud.tscn` | 時鐘、連線狀態、agent 數、事件日誌、點角色後的需求卡。 |
 | `scripts/main.gd` | 把 WebSocket signal 接到 World 與 HUD。 |
 | `scripts/network_client.gd` | WebSocket client。桌面預設 `ws://127.0.0.1:8000/ws`。Web build 用頁面同源 `/ws`；分進程本機開發用 query `?ws=`。斷線後 2s 起、上限 30s 重連。可送 `intent`，並接收 `intent_result`。 |
-| `scripts/world.gd` | 依 snapshot / agent_update 生成或更新 NPC。`_ready` 檢查場景 POI 座標是否與 backend 一致。 |
-| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色讀 manifest 的 `name_color`。外觀走 `agent.<id>`。 |
+| `scripts/world.gd` | 依 snapshot / agent_update 生成或更新 NPC。自己的角色用 snapshot 的 `you`。滑鼠靠近 POI 時高亮並顯示名稱，點擊後在目的地留標記直到抵達。點在角色身上則回傳該 agent。 |
+| `scripts/camera.gd` | 預設以約 3 倍跟隨自己的玩家。滾輪縮放，拖曳後改為自由觀看，空白鍵回到玩家。 |
+| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色讀 manifest 的 `name_color`。自己的角色頭上顯示「你」與向下箭頭，腳下有高亮圈。外觀走 `agent.<id>`。 |
 | `scripts/visual_binder.gd` | 依 content id 找 `packs/user` 再 `packs/default`，都沒有就畫 placeholder。manifest 讀不到時 `push_error`。快捷欄圖示也走這裡。 |
 | `data/visual_manifest.json` | 外觀設定（kind、category、footprint、origin、顏色）。不存座標，也不存檔案路徑。 |
-| `scripts/hud.gd` | 時鐘、連線、人數、事件文字、需求與快捷欄。事件句子依 event type 模板生成。快捷欄圖示走 `VisualBinder`。時鐘只在 snapshot 與 agent_update 更新。 |
-| `scripts/player_input.gd` | 點 POI 移動。1–3 使用工具，4 使用目前選中物品，E 撿麵包，G 給予，Q 切換物品。 |
+| `scripts/hud.gd` | 時鐘、連線、人數、事件文字、需求與快捷欄。快捷欄每格有編號、圖示與數量，選中格有外框。點角色後左上角顯示名字與 hunger/energy/social，低於 30 標紅。事件句子依 event type 模板生成。時鐘只在 snapshot 與 agent_update 更新。 |
+| `scripts/player_input.gd` | 點角色查看需求，點 POI 移動。1–3 使用工具，4 使用目前選中物品，E 撿麵包，G 給予，Q 切換物品。失敗原因依 `intent_result.reason` 顯示具體中文。 |
 | `scripts/event_log.gd` | 事件日誌，最多 20 行。 |
 
 `game/build/` 與 `.godot/` 不進 git。

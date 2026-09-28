@@ -14,9 +14,29 @@ const POIS := {
 	"park": Vector2(392, 320),
 }
 
+const POI_NAMES := {
+	"mina_home": "Mina 的家",
+	"alex_home": "Alex 的家",
+	"rin_home": "Rin 的家",
+	"cafe": "咖啡廳",
+	"store": "便利商店",
+	"office": "辦公室",
+	"library": "圖書館",
+	"plaza": "廣場",
+	"park": "公園",
+}
+
+const POI_PICK_RADIUS := 56.0
+const AGENT_PICK_RADIUS := 36.0
+
 @export var npc_scene: PackedScene
 
 var _npcs: Dictionary = {}
+var _you := ""
+var _destination := ""
+var _hover_id := ""
+var _hover_label: Label
+var _destination_mark: Node2D
 
 
 func _ready() -> void:
@@ -39,9 +59,78 @@ func _ready() -> void:
 			node.add_child(sprite)
 		sprite.texture_filter = TEXTURE_FILTER_NEAREST
 		VisualBinder.apply(sprite, node, "poi.%s" % poi_id)
+		var ring := Line2D.new()
+		ring.name = "HoverRing"
+		ring.width = 2.0
+		ring.closed = true
+		ring.visible = false
+		ring.default_color = Color(1, 0.95, 0.72)
+		ring.points = _circle_points(18.0, 20)
+		node.add_child(ring)
+	_hover_label = Label.new()
+	_hover_label.name = "PoiHover"
+	_hover_label.visible = false
+	_hover_label.z_index = 40
+	_hover_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hover_label.size = Vector2(120, 18)
+	_hover_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hover_label.add_theme_font_size_override("font_size", 14)
+	_hover_label.add_theme_color_override("font_color", Color.WHITE)
+	_hover_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+	_hover_label.add_theme_constant_override("outline_size", 5)
+	add_child(_hover_label)
+	_destination_mark = _make_destination_mark()
+	add_child(_destination_mark)
+
+
+func _process(_delta: float) -> void:
+	_update_hover()
+
+
+func agent_at(world_pos: Vector2) -> String:
+	var nearest := ""
+	var best := AGENT_PICK_RADIUS
+	for agent_id in _npcs:
+		var npc := _npcs[agent_id] as Node2D
+		if npc == null:
+			continue
+		var distance := world_pos.distance_to(npc.global_position)
+		if distance <= best:
+			best = distance
+			nearest = str(agent_id)
+	return nearest
+
+
+func poi_at(world_pos: Vector2) -> String:
+	var nearest := ""
+	var best := POI_PICK_RADIUS
+	for poi_id in POIS:
+		var distance := world_pos.distance_to(POIS[poi_id])
+		if distance <= best:
+			best = distance
+			nearest = poi_id
+	return nearest
+
+
+func show_destination(poi_id: String) -> void:
+	if not POIS.has(poi_id):
+		return
+	_destination = poi_id
+	_destination_mark.position = POIS[poi_id]
+	_destination_mark.visible = true
+
+
+func clear_destination() -> void:
+	_destination = ""
+	_destination_mark.visible = false
+
+
+func local_player_position() -> Vector2:
+	return npc_position(_you)
 
 
 func apply_snapshot(data: Dictionary) -> void:
+	_you = str(data.get("you", ""))
 	var agents: Variant = data.get("agents", [])
 	if typeof(agents) != TYPE_ARRAY:
 		push_error("world_snapshot.agents is not an array")
@@ -144,5 +233,85 @@ func _upsert_npc(agent: Dictionary, snap: bool) -> void:
 		push_error("NPC missing update_from_server()")
 		return
 	npc.update_from_server(agent, snap)
+	if npc.has_method("set_local_player"):
+		npc.set_local_player(agent_id == _you)
+	if agent_id == _you and _destination == str(agent.get("location", "")):
+		if str(agent.get("state", "")) != "walking":
+			clear_destination()
 	if npc.has_method("set_stand_offset"):
 		npc.set_stand_offset(Vector2.ZERO, snap)
+
+
+func _update_hover() -> void:
+	if _hover_label == null:
+		return
+	var next := ""
+	if not _pointer_over_chrome():
+		next = poi_at(get_global_mouse_position())
+	if next != _hover_id:
+		_set_hover(next)
+
+
+func _set_hover(poi_id: String) -> void:
+	var pois_root := get_node_or_null("POIs")
+	if _hover_id != "" and pois_root != null:
+		var previous := pois_root.get_node_or_null(_hover_id)
+		if previous != null:
+			var old_ring := previous.get_node_or_null("HoverRing")
+			if old_ring != null:
+				old_ring.visible = false
+			var old_sprite := previous.get_node_or_null("Sprite") as CanvasItem
+			if old_sprite != null:
+				old_sprite.modulate = Color.WHITE
+	_hover_id = poi_id
+	if poi_id.is_empty() or pois_root == null:
+		_hover_label.visible = false
+		return
+	var node := pois_root.get_node_or_null(poi_id)
+	if node == null:
+		_hover_label.visible = false
+		return
+	var ring := node.get_node_or_null("HoverRing")
+	if ring != null:
+		ring.visible = true
+	var sprite := node.get_node_or_null("Sprite") as CanvasItem
+	if sprite != null:
+		sprite.modulate = Color(1.45, 1.38, 1.05)
+	_hover_label.text = str(POI_NAMES.get(poi_id, poi_id))
+	var anchor: Vector2 = POIS[poi_id]
+	_hover_label.position = anchor + Vector2(-60, -54)
+	_hover_label.visible = true
+
+
+func _pointer_over_chrome() -> bool:
+	var view := get_viewport().get_visible_rect().size
+	var mouse := get_viewport().get_mouse_position()
+	return mouse.y >= view.y - 150.0 and mouse.x < 660.0
+
+
+func _make_destination_mark() -> Node2D:
+	var mark := Node2D.new()
+	mark.name = "Destination"
+	mark.z_index = 25
+	mark.visible = false
+	var pin := Polygon2D.new()
+	pin.color = Color(1.0, 0.78, 0.15)
+	pin.polygon = PackedVector2Array([
+		Vector2(0, -2),
+		Vector2(-8, -18),
+		Vector2(-3, -18),
+		Vector2(-3, -30),
+		Vector2(3, -30),
+		Vector2(3, -18),
+		Vector2(8, -18),
+	])
+	mark.add_child(pin)
+	return mark
+
+
+func _circle_points(radius: float, count: int) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in count:
+		var angle := TAU * float(index) / float(count)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
+	return points

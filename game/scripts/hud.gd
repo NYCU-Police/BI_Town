@@ -2,6 +2,10 @@ extends CanvasLayer
 
 const _MATCH_COLOR := Color(0.65, 0.67, 0.64)
 const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
+## Same line as the server's hungry / exhausted / lonely marks.
+const _LOW_NEED := 30
+const _NEED_OK := Color(0.93, 0.93, 0.9)
+const _NEED_LOW := Color(0.93, 0.32, 0.32)
 
 @onready var _title_label: Label = %Title
 @onready var _build_label: Label = %BuildLabel
@@ -11,15 +15,20 @@ const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
 @onready var _event_log: RichTextLabel = %EventLog
 @onready var _needs_label: Label = %NeedsLabel
 @onready var _intent_label: Label = %IntentLabel
+@onready var _inspect: Panel = %Inspect
+@onready var _inspect_name: Label = %InspectName
+@onready var _inspect_hunger: Label = %InspectHunger
+@onready var _inspect_energy: Label = %InspectEnergy
+@onready var _inspect_social: Label = %InspectSocial
 
-var _slot_labels: Array[Label] = []
+var _slots: Array[Panel] = []
 
 var _agent_names: Dictionary = {}
 var _web_health_callback: Variant
 
 
 func _ready() -> void:
-	_slot_labels = [%Slot1, %Slot2, %Slot3, %Slot4]
+	_slots = [%Slot1, %Slot2, %Slot3, %Slot4]
 	_event_log.meta_clicked.connect(_on_log_meta)
 	set_connection(false)
 	_title_label.text = "BI_Town"
@@ -28,7 +37,12 @@ func _ready() -> void:
 	_agents_label.text = "Agents: 0"
 	_needs_label.text = "Hunger —  Energy —  Social —"
 	_intent_label.text = ""
-	set_hotbar(["", "", "", ""])
+	set_hotbar([
+		{"content_id": "", "count": 0, "selected": false},
+		{"content_id": "", "count": 0, "selected": false},
+		{"content_id": "", "count": 0, "selected": false},
+		{"content_id": "", "count": 0, "selected": true},
+	])
 	_request_health()
 
 
@@ -172,7 +186,10 @@ func _read_local_frontend_commit() -> String:
 
 
 func _commit_from_build_info(text: String) -> String:
-	var parsed: Variant = JSON.parse_string(text)
+	var trimmed := text.strip_edges()
+	if not trimmed.begins_with("{"):
+		return "unknown"
+	var parsed: Variant = JSON.parse_string(trimmed)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return "unknown"
 	var commit := str(parsed.get("commit", "unknown")).strip_edges()
@@ -182,7 +199,11 @@ func _commit_from_build_info(text: String) -> String:
 
 
 func _apply_health_text(frontend: String, text: String) -> void:
-	var parsed: Variant = JSON.parse_string(text)
+	var trimmed := text.strip_edges()
+	if not trimmed.begins_with("{"):
+		_render_identity(frontend, "unknown", "unknown", true)
+		return
+	var parsed: Variant = JSON.parse_string(trimmed)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		_render_identity(frontend, "unknown", "unknown", true)
 		return
@@ -224,22 +245,45 @@ func _short_commit(commit: String) -> String:
 	return commit
 
 
-func set_hotbar(content_ids: Array) -> void:
-	for index in _slot_labels.size():
-		var slot: Label = _slot_labels[index]
+func set_hotbar(slots: Array) -> void:
+	for index in _slots.size():
+		var slot: Panel = _slots[index]
 		var content_id := ""
-		if index < content_ids.size():
-			content_id = str(content_ids[index])
-		slot.text = "%d" % [index + 1]
+		var count := 0
+		var selected := false
+		if index < slots.size() and typeof(slots[index]) == TYPE_DICTIONARY:
+			var info: Dictionary = slots[index]
+			content_id = str(info.get("content_id", ""))
+			count = int(info.get("count", 0))
+			selected = bool(info.get("selected", false))
+		slot.add_theme_stylebox_override("panel", _slot_style(selected))
+		var number := slot.get_node("Number") as Label
+		number.text = str(index + 1)
+		var count_label := slot.get_node("Count") as Label
+		count_label.text = str(count) if count > 0 else ""
+		var host := slot.get_node("IconHost") as Control
 		if content_id.is_empty():
-			var icon := slot.get_node_or_null("Icon")
-			if icon != null:
-				icon.queue_free()
-			var fallback := slot.get_node_or_null("Fallback")
-			if fallback != null:
-				fallback.queue_free()
-			continue
-		VisualBinder.apply_icon(slot, content_id)
+			_clear_slot_icon(host)
+		else:
+			VisualBinder.apply_icon(host, content_id)
+
+
+func _slot_style(selected: bool) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0.1, 0.11, 0.13, 0.92)
+	box.set_corner_radius_all(3)
+	box.set_border_width_all(2 if selected else 1)
+	box.border_color = Color(0.95, 0.78, 0.35) if selected else Color(0.32, 0.33, 0.36)
+	return box
+
+
+func _clear_slot_icon(host: Control) -> void:
+	var icon := host.get_node_or_null("Icon")
+	if icon != null:
+		icon.queue_free()
+	var fallback := host.get_node_or_null("Fallback")
+	if fallback != null:
+		fallback.queue_free()
 
 
 func set_needs(hunger: int, energy: int, social: int) -> void:
@@ -248,6 +292,20 @@ func set_needs(hunger: int, energy: int, social: int) -> void:
 
 func show_intent_reason(reason: String) -> void:
 	_intent_label.text = reason
+
+
+func show_inspect(agent_name: String, hunger: int, energy: int, social: int) -> void:
+	_inspect.visible = true
+	_inspect_name.text = agent_name
+	_paint_need(_inspect_hunger, "Hunger", hunger)
+	_paint_need(_inspect_energy, "Energy", energy)
+	_paint_need(_inspect_social, "Social", social)
+
+
+func _paint_need(label: Label, title: String, value: int) -> void:
+	label.text = "%s %d" % [title, value]
+	var tint := _NEED_LOW if value < _LOW_NEED else _NEED_OK
+	label.add_theme_color_override("font_color", tint)
 
 
 func _set_clock(data: Dictionary) -> void:

@@ -106,7 +106,10 @@ func send_intent(intent: Dictionary) -> void:
 
 
 func _handle_text(text: String) -> void:
-	var parsed: Variant = JSON.parse_string(text)
+	var trimmed := text.strip_edges()
+	if not trimmed.begins_with("{"):
+		return
+	var parsed: Variant = JSON.parse_string(trimmed)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		push_error("WebSocket JSON parse failed: %s" % text)
 		return

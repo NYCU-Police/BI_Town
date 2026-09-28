@@ -32,6 +32,14 @@ def test_manifest_matches_namespaced_content_ids() -> None:
         assert "art" not in entry
         if namespace == "agent":
             assert str(entry["name_color"]).startswith("#")
+    poi_colors = {
+        str(entry["placeholder_color"]).lower()
+        for content_id, entry in manifest.items()
+        if content_id.startswith("poi.")
+    }
+    player = manifest["agent.player"]
+    assert str(player["placeholder_color"]).lower() not in poi_colors
+    assert str(player["name_color"]).lower() not in poi_colors
 
 
 def test_pack_paths_are_only_in_visual_binder() -> None:

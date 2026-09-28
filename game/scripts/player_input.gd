@@ -1,21 +1,10 @@
 extends Node
 
-const _CLICK_RADIUS := 56.0
 const _FOOD := {"bread": true}
-const _REASONS := {
-	"not_here": "還不在同一個地方",
-	"nothing_here": "這裡沒有那樣東西",
-	"not_holding": "手上沒有",
-	"not_food": "這不能吃",
-	"rate_limited": "太快了",
-	"too_large": "訊息太大",
-	"wrong_place": "這裡用不了",
-	"unknown_tool": "沒有這個工具",
-	"unknown_place": "沒有這個地方",
-	"unknown_agent": "找不到對方",
-	"players_disabled": "玩家已關閉",
-	"unsupported_target": "不支援這個目標",
-	"bad_intent": "這個動作不對",
+const _NAMES := {
+	"bread": "麵包",
+	"wood": "木材",
+	"watering_can": "澆水壺",
 }
 
 @onready var _network: Node = $"../NetworkClient"
@@ -28,6 +17,9 @@ var _tools: Array = []
 var _items: Array = []
 var _selected := 0
 var _others: Dictionary = {}
+var _last_action := ""
+var _last_item := ""
+var _inspected := ""
 
 
 func _ready() -> void:
@@ -82,6 +74,8 @@ func _on_agents(data: Dictionary) -> void:
 			_others.erase(gone)
 			if gone == _player_id:
 				_player_id = ""
+			if gone == _inspected:
+				_inspected = ""
 	var agents: Variant = data.get("agents", [])
 	if typeof(agents) == TYPE_ARRAY:
 		for agent in agents:
@@ -91,22 +85,71 @@ func _on_agents(data: Dictionary) -> void:
 
 
 func _on_intent(_client_seq: int, ok: bool, reason: String) -> void:
-	if ok or not _hud.has_method("show_intent_reason"):
-		if ok and _hud.has_method("show_intent_reason"):
-			_hud.show_intent_reason("")
+	if not _hud.has_method("show_intent_reason"):
 		return
-	var text := str(_REASONS.get(reason, reason))
-	_hud.show_intent_reason(text)
+	if ok:
+		_hud.show_intent_reason("")
+		return
+	_hud.show_intent_reason(_reason_text(reason))
+
+
+func _reason_text(reason: String) -> String:
+	match reason:
+		"not_holding":
+			return "手上沒有物品"
+		"wrong_place":
+			var tool_name := str(_NAMES.get(_last_item, ""))
+			if tool_name.is_empty():
+				return "這個地點不能用這個工具"
+			return "這個地點不能用%s" % tool_name
+		"nothing_here":
+			if _last_action == "pick_up":
+				return "這裡沒有麵包"
+			return "這裡沒有那樣東西"
+		"not_here":
+			if _last_action == "give":
+				return "對方不在這裡"
+			return "還沒走到那個地方"
+		"not_food":
+			return "這不能吃"
+		"unknown_tool":
+			return "沒有這個工具"
+		"unknown_place":
+			return "沒有這個地方"
+		"unknown_agent":
+			return "找不到對方"
+		"rate_limited":
+			return "太快了"
+		"too_large":
+			return "訊息太大"
+		"players_disabled":
+			return "玩家已關閉"
+		"unsupported_target":
+			return "不支援這個目標"
+		"bad_intent":
+			return "這個動作不對"
+		"no_player":
+			return "找不到玩家"
+		_:
+			return reason
 
 
 func _remember(agent: Dictionary) -> void:
 	var agent_id := str(agent.get("id", ""))
 	if agent_id.is_empty():
 		return
-	_others[agent_id] = {
-		"location": str(agent.get("location", "")),
-		"state": str(agent.get("state", "")),
-	}
+	var info: Dictionary = _others.get(agent_id, {})
+	info["location"] = str(agent.get("location", ""))
+	info["state"] = str(agent.get("state", ""))
+	info["name"] = str(agent.get("name", agent_id))
+	var needs: Variant = agent.get("needs", null)
+	if typeof(needs) == TYPE_DICTIONARY:
+		info["hunger"] = int(needs.get("hunger", 0))
+		info["energy"] = int(needs.get("energy", 0))
+		info["social"] = int(needs.get("social", 0))
+	_others[agent_id] = info
+	if agent_id == _inspected:
+		_show_inspected()
 	if agent_id != _player_id:
 		return
 	_location = str(agent.get("location", ""))
@@ -116,47 +159,75 @@ func _remember(agent: Dictionary) -> void:
 		_items = agent.get("items", [])
 		if _selected >= _items.size():
 			_selected = 0
-	var needs: Variant = agent.get("needs", null)
-	if typeof(needs) == TYPE_DICTIONARY and _hud.has_method("set_needs"):
-		_hud.set_needs(
-			int(needs.get("hunger", 0)),
-			int(needs.get("energy", 0)),
-			int(needs.get("social", 0)),
-		)
+	if info.has("hunger") and _hud.has_method("set_needs"):
+		_hud.set_needs(int(info["hunger"]), int(info["energy"]), int(info["social"]))
 
 
 func _refresh_hotbar() -> void:
 	if not _hud.has_method("set_hotbar"):
 		return
-	var content_ids: Array[String] = []
+	var slots: Array = []
 	for index in 3:
 		var tool := ""
 		if index < _tools.size():
 			tool = str(_tools[index])
-		content_ids.append("tool.%s" % tool if not tool.is_empty() else "")
+		if tool.is_empty():
+			slots.append({"content_id": "", "count": 0, "selected": false})
+		else:
+			slots.append({
+				"content_id": "tool.%s" % tool,
+				"count": 1,
+				"selected": false,
+			})
 	var selected := _selected_id()
-	content_ids.append("item.%s" % selected if not selected.is_empty() else "")
-	_hud.set_hotbar(content_ids)
+	slots.append({
+		"content_id": "item.%s" % selected if not selected.is_empty() else "",
+		"count": _selected_count(),
+		"selected": true,
+	})
+	_hud.set_hotbar(slots)
+
+
+func _show_inspected() -> void:
+	if _inspected.is_empty() or not _others.has(_inspected):
+		return
+	if not _hud.has_method("show_inspect"):
+		return
+	var info: Dictionary = _others[_inspected]
+	if not info.has("hunger"):
+		return
+	_hud.show_inspect(
+		str(info.get("name", _inspected)),
+		int(info["hunger"]),
+		int(info["energy"]),
+		int(info["social"]),
+	)
 
 
 func _click_move() -> void:
-	var pois := _world.get_node_or_null("POIs")
-	if pois == null:
+	if not _world.has_method("poi_at"):
 		return
-	var where := _world.get_global_mouse_position()
-	var nearest := ""
-	var best := _CLICK_RADIUS
-	for child in pois.get_children():
-		var marker := child as Node2D
-		if marker == null:
-			continue
-		var distance := where.distance_to(marker.global_position)
-		if distance <= best:
-			best = distance
-			nearest = str(marker.name)
+	var mouse := get_viewport().get_mouse_position()
+	var view := get_viewport().get_visible_rect().size
+	if mouse.y >= view.y - 150.0 and mouse.x < 660.0:
+		return
+	var world_at: Vector2 = _world.get_global_mouse_position()
+	if _world.has_method("agent_at"):
+		var hit := str(_world.agent_at(world_at))
+		if not hit.is_empty():
+			_inspected = hit
+			_show_inspected()
+			return
+	var nearest := str(_world.poi_at(world_at))
 	if nearest.is_empty():
 		return
-	_network.send_intent({
+	var state := ""
+	if _others.has(_player_id):
+		state = str(_others[_player_id].get("state", ""))
+	if nearest != _location or state == "walking":
+		if _world.has_method("show_destination"):
+			_world.show_destination(nearest)
+	_send_intent({
 		"action": "move_to",
 		"target": {"type": "poi", "id": nearest},
 	})
@@ -165,7 +236,7 @@ func _click_move() -> void:
 func _use_tool(index: int) -> void:
 	if index >= _tools.size() or _location.is_empty():
 		return
-	_network.send_intent({
+	_send_intent({
 		"action": "use_tool",
 		"target": {"type": "poi", "id": _location},
 		"item": str(_tools[index]),
@@ -175,18 +246,21 @@ func _use_tool(index: int) -> void:
 func _use_selected() -> void:
 	var item_id := _selected_id()
 	if item_id.is_empty():
+		_last_action = "eat"
+		_show_local_reason("not_holding")
 		return
 	if not _FOOD.has(item_id):
-		if _hud.has_method("show_intent_reason"):
-			_hud.show_intent_reason(str(_REASONS["not_food"]))
+		_last_action = "eat"
+		_last_item = item_id
+		_show_local_reason("not_food")
 		return
-	_network.send_intent({"action": "eat", "item": item_id})
+	_send_intent({"action": "eat", "item": item_id})
 
 
 func _pick_up() -> void:
 	if _location.is_empty():
 		return
-	_network.send_intent({
+	_send_intent({
 		"action": "pick_up",
 		"target": {"type": "poi", "id": _location},
 		"item": "bread",
@@ -195,7 +269,10 @@ func _pick_up() -> void:
 
 func _give() -> void:
 	var item_id := _selected_id()
+	_last_action = "give"
+	_last_item = item_id
 	if item_id.is_empty():
+		_show_local_reason("not_holding")
 		return
 	for agent_id in _others:
 		if str(agent_id) == _player_id:
@@ -205,14 +282,13 @@ func _give() -> void:
 			continue
 		if str(info.get("state", "")) == "walking":
 			continue
-		_network.send_intent({
+		_send_intent({
 			"action": "give",
 			"target": {"type": "agent", "id": str(agent_id)},
 			"item": item_id,
 		})
 		return
-	if _hud.has_method("show_intent_reason"):
-		_hud.show_intent_reason(str(_REASONS["not_here"]))
+	_show_local_reason("not_here")
 
 
 func _cycle_selected() -> void:
@@ -220,6 +296,26 @@ func _cycle_selected() -> void:
 		return
 	_selected = (_selected + 1) % _items.size()
 	_refresh_hotbar()
+
+
+func _send_intent(intent: Dictionary) -> void:
+	_last_action = str(intent.get("action", ""))
+	_last_item = str(intent.get("item", ""))
+	_network.send_intent(intent)
+
+
+func _show_local_reason(reason: String) -> void:
+	if _hud.has_method("show_intent_reason"):
+		_hud.show_intent_reason(_reason_text(reason))
+
+
+func _selected_count() -> int:
+	if _selected < 0 or _selected >= _items.size():
+		return 0
+	var stack: Variant = _items[_selected]
+	if typeof(stack) != TYPE_DICTIONARY:
+		return 0
+	return int(stack.get("count", 0))
 
 
 func _selected_id() -> String:

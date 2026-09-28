@@ -291,6 +291,36 @@ def test_player_feeds_mina() -> None:
     assert world.bodies["mina"].hunger > before
 
 
+def test_giving_bread_raises_mina_hunger() -> None:
+    world = World()
+    player_id = "player_give"
+    world.add_player(player_id)
+    world.bodies[player_id].items["bread"] = 1
+    _at(world, player_id, "office")
+    _at(world, "mina", "office")
+    world.bodies["mina"].hunger = HUNGER_ACTION_THRESHOLD - 1
+    before = world.bodies["mina"].hunger
+
+    result = world.apply_intent(
+        player_id,
+        Intent(
+            action="give",
+            target=TargetRef(type="agent", id="mina"),
+            item="bread",
+        ),
+    )
+
+    assert result.ok
+    assert [event.event for event in result.events] == ["gave", "ate"]
+    assert result.events[0].agent_id == player_id
+    assert result.events[0].target_agent_id == "mina"
+    assert result.events[0].item == "bread"
+    assert result.events[1].agent_id == "mina"
+    assert result.events[1].item == "bread"
+    assert world.bodies["mina"].hunger > before
+    assert world.bodies["mina"].hunger == pytest.approx(before + EAT_FULLNESS_RESTORE)
+
+
 def test_collapse_overrides_llm_movement() -> None:
     async def _stay(_messages: list, _schema: dict) -> str:
         return '{"action":"stay","target":"","say":"","thought":""}'

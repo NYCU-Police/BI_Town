@@ -94,7 +94,6 @@ static func _resolve(content_id: String) -> String:
 		return user_path
 	var default_path := _DEFAULT_PATH % [category, file_name]
 	if ResourceLoader.exists(default_path):
-		_warn_once(content_id, "fell back to %s" % default_path)
 		return default_path
 	_warn_once(content_id, "fell back to placeholder")
 	return ""
@@ -139,15 +138,9 @@ static func _show_control_placeholder(host: Control, content_id: String, previou
 	var fallback := ColorRect.new()
 	fallback.name = "Fallback"
 	fallback.color = _placeholder_color(content_id)
-	fallback.custom_minimum_size = Vector2(minf(box.x, 16.0), minf(box.y, 16.0))
-	fallback.size = fallback.custom_minimum_size
+	fallback.custom_minimum_size = Vector2(16, 16)
+	fallback.size = Vector2(16, 16)
 	fallback.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var label := Label.new()
-	label.text = content_id
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.add_theme_font_size_override("font_size", 6)
-	label.add_theme_color_override("font_color", Color.WHITE)
-	fallback.add_child(label)
 	host.add_child(fallback)
 
 
