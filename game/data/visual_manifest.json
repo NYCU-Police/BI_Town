@@ -1,0 +1,118 @@
+{
+  "poi.mina_home": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#c47a6a"
+  },
+  "poi.alex_home": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#6aa8b0"
+  },
+  "poi.rin_home": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#d4b15a"
+  },
+  "poi.cafe": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#b87a47"
+  },
+  "poi.store": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#7a8f62"
+  },
+  "poi.office": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#6e7c93"
+  },
+  "poi.library": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#8a6e55"
+  },
+  "poi.plaza": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#8d8a7a"
+  },
+  "poi.park": {
+    "kind": "sprite",
+    "category": "poi",
+    "footprint": [32, 32],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#5d8a4a"
+  },
+  "agent.mina": {
+    "kind": "sprite",
+    "category": "actors",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#e8737a",
+    "name_color": "#e8737a"
+  },
+  "agent.alex": {
+    "kind": "sprite",
+    "category": "actors",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#59b8c7",
+    "name_color": "#59b8c7"
+  },
+  "agent.rin": {
+    "kind": "sprite",
+    "category": "actors",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#f2c759",
+    "name_color": "#f2c759"
+  },
+  "agent.player": {
+    "kind": "sprite",
+    "category": "actors",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#d9d9d4",
+    "name_color": "#d9d9d4"
+  },
+  "item.bread": {
+    "kind": "sprite",
+    "category": "items",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#e2c07a"
+  },
+  "item.wood": {
+    "kind": "sprite",
+    "category": "items",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#8a5a32"
+  },
+  "tool.watering_can": {
+    "kind": "sprite",
+    "category": "tools",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#4f8fbe"
+  }
+}

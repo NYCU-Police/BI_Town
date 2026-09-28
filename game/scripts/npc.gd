@@ -2,16 +2,6 @@ extends Node2D
 
 @export var lerp_speed: float = 8.0
 
-const COLORS := {
-	"mina": Color(0.91, 0.45, 0.48),
-	"alex": Color(0.35, 0.72, 0.78),
-	"rin": Color(0.95, 0.78, 0.35),
-}
-const SPRITES := {
-	"mina": preload("res://assets/characters/mina.png"),
-	"alex": preload("res://assets/characters/alex.png"),
-	"rin": preload("res://assets/characters/rin.png"),
-}
 const SPEECH_HOLD_SECONDS := 6.0
 const SPEECH_FADE_SECONDS := 0.4
 ## Top of the name plate, just above the 16px sprite. The speech tail sits above this.
@@ -26,7 +16,6 @@ const TEXT_FONT_SIZE := 14
 const TAIL_HALF_WIDTH := 8.0
 const TAIL_HEIGHT := 10.0
 const NAME_GAP := 2.0
-const SPRITE_Y := -8.0
 const WALK_FRAME_SECONDS := 0.18
 const IDLE_FRAME_SECONDS := 0.7
 
@@ -37,6 +26,7 @@ var _has_server_position: bool = false
 var _speech_hold: float = 0.0
 var _speech_fade: float = 0.0
 var _agent_id: String = ""
+var _visual_id: String = ""
 var _slot_index: int = 0
 var _anim_time: float = 0.0
 
@@ -53,7 +43,7 @@ var _anim_time: float = 0.0
 func _ready() -> void:
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.scale = Vector2.ONE
-	_sprite.position = Vector2(0, SPRITE_Y)
+	_sprite.position = Vector2.ZERO
 
 
 func server_anchor() -> Vector2:
@@ -70,9 +60,11 @@ func update_from_server(data: Dictionary, snap: bool = false) -> void:
 	server_position = Vector2(float(coords.get("x", 0.0)), float(coords.get("y", 0.0)))
 	_agent_id = str(data.get("id", ""))
 	_label.text = str(data.get("name", _agent_id if not _agent_id.is_empty() else "NPC"))
-	var tint: Color = COLORS.get(_agent_id, Color(0.93, 0.93, 0.93))
+	var tint := VisualBinder.name_color("agent." + _agent_id)
 	_label.add_theme_color_override("font_color", tint)
-	_sprite.texture = SPRITES.get(_agent_id, SPRITES["mina"])
+	if _agent_id != _visual_id:
+		_visual_id = _agent_id
+		VisualBinder.apply(_sprite, self, "agent." + _agent_id)
 	var task := str(data.get("activity", "")).strip_edges()
 	if task.is_empty():
 		_activity.visible = false
@@ -105,7 +97,7 @@ func show_speech(content: String) -> void:
 	if utterance.is_empty():
 		return
 	_speaker_label.text = _label.text
-	var speaker_color: Color = COLORS.get(_agent_id, Color(0.2, 0.2, 0.22))
+	var speaker_color := VisualBinder.name_color("agent." + _agent_id)
 	_speaker_label.add_theme_color_override("font_color", speaker_color)
 	_speech_label.text = utterance
 	_layout_bubble()
@@ -211,4 +203,4 @@ func _apply_motion(delta: float, moved: Vector2, goal: Vector2) -> void:
 	else:
 		var frame := int(_anim_time / IDLE_FRAME_SECONDS) % 2
 		lift = 1.0 if frame == 1 else 0.0
-	_sprite.position = Vector2(0, SPRITE_Y - lift)
+	_sprite.position = Vector2(0, -lift)

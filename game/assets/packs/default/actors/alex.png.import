@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c2pchwn846ggu"
-path="res://.godot/imported/mina.png-78ed1eaa1fd8eb2b1895d429eee1ebe7.ctex"
+uid="uid://b8otmjxpbaa1j"
+path="res://.godot/imported/alex.png-01f916695575c5d7988e9fdee82a3f6b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/characters/mina.png"
-dest_files=["res://.godot/imported/mina.png-78ed1eaa1fd8eb2b1895d429eee1ebe7.ctex"]
+source_file="res://assets/packs/default/actors/alex.png"
+dest_files=["res://.godot/imported/alex.png-01f916695575c5d7988e9fdee82a3f6b.ctex"]
 
 [params]
 
