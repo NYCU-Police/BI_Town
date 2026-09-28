@@ -76,12 +76,21 @@ class WorldEvent(BaseModel):
     item: str | None = None
 
 
+class DialogueTurn(BaseModel):
+    speaker_id: str
+    reply: str
+    role: Literal["player", "resident"] = "resident"
+    mood: str | None = None
+    reason: str | None = None
+
+
 class WorldSnapshot(BaseModel):
     day: int
     time: str
     agents: list[Agent]
     events: list[WorldEvent]
     you: str | None = None
+    dialogue_history: list[DialogueTurn] = Field(default_factory=list)
 
 
 class WorldSnapshotMessage(BaseModel):

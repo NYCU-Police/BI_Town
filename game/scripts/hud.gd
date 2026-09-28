@@ -74,6 +74,7 @@ func apply_snapshot(data: Dictionary) -> void:
 	else:
 		push_error("world_snapshot.agents is not an array")
 
+	_restore_dialogue(data.get("dialogue_history", []))
 	if _event_log.has_method("clear_events"):
 		_event_log.clear_events()
 	var events: Variant = data.get("events", [])
@@ -609,6 +610,22 @@ func show_private_reply(speaker_id: String, reply: String) -> void:
 	stop_waiting()
 	var agent_name := str(_agent_names.get(speaker_id, speaker_id))
 	_talk_lines.append("%s對你說：%s" % [agent_name, reply])
+	_refresh_dialogue()
+
+
+func _restore_dialogue(history: Variant) -> void:
+	_talk_lines = PackedStringArray()
+	if typeof(history) == TYPE_ARRAY:
+		for turn in history:
+			if typeof(turn) != TYPE_DICTIONARY:
+				continue
+			var reply := str(turn.get("reply", ""))
+			if str(turn.get("role", "resident")) == "player":
+				_talk_lines.append("你：%s" % reply)
+			else:
+				var speaker := str(turn.get("speaker_id", ""))
+				var agent_name := str(_agent_names.get(speaker, speaker))
+				_talk_lines.append("%s對你說：%s" % [agent_name, reply])
 	_refresh_dialogue()
 
 

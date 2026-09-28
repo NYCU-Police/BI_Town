@@ -42,3 +42,25 @@ def test_known_token_keeps_the_dossier() -> None:
             assert isinstance(kept, Dossier)
             assert kept.memory["mina"] == [("player", "還在")]
             assert snap["data"]["you"] != _snapshot["data"]["you"]
+            history = snap["data"]["dialogue_history"]
+            assert history == [
+                {"speaker_id": "mina", "reply": "還在", "role": "player"}
+            ]
+
+
+def test_disconnect_broadcasts_conversing_ended() -> None:
+    with client.websocket_connect("/ws") as watcher:
+        take_session(watcher)
+        with client.websocket_connect("/ws") as speaker:
+            _session, snap = take_session(speaker)
+            player_id = snap["data"]["you"]
+            entered = watcher.receive_json()
+            assert entered["type"] == "agent_update"
+            state.world.conversing.add((player_id, "mina"))
+        update = watcher.receive_json()
+        assert player_id in update["data"]["removed"]
+        event = watcher.receive_json()
+        assert event["data"]["event"] == "conversing_ended"
+        assert event["data"]["agent_id"] == player_id
+        assert event["data"]["target_agent_id"] == "mina"
+        assert (player_id, "mina") not in state.world.conversing

@@ -21,6 +21,7 @@ import httpx
 import opencc
 from pydantic import BaseModel, Field
 
+from app import config as app_config
 from app.config import (
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_TIMEOUT_SECONDS,
@@ -913,7 +914,7 @@ class LlmSession:
         self.player_talk_running = False
         self.decision_counts: dict[str, int] = {}
         self.talk_world: Any = None
-        self.talk_log: list[dict[str, Any]] = []
+        self.talk_log: deque[dict[str, Any]] = deque(maxlen=app_config.TALK_LOG_LIMIT)
 
     def advance(
         self,

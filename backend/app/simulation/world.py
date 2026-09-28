@@ -166,15 +166,34 @@ class World:
         self._sync_players_present()
         return self._view(agent, include_needs=True)
 
-    def remove_player(self, player_id: str) -> bool:
+    def remove_player(self, player_id: str) -> list[WorldEvent] | None:
+        """Drop the body. None if they were already gone.
+
+        Conversing pairs that include this player end immediately so the
+        other client's chat icon does not stay up.
+        """
         if player_id not in self.agents:
-            return False
+            return None
         del self.agents[player_id]
         self.bodies.pop(player_id, None)
         self._sent_needs.pop(player_id, None)
         self.player_tokens.pop(player_id, None)
+        ended: list[WorldEvent] = []
+        for player, resident in list(self.conversing):
+            if player != player_id and resident != player_id:
+                continue
+            self.conversing.discard((player, resident))
+            ended.append(
+                WorldEvent(
+                    timestamp=self.time,
+                    agent_id=player,
+                    event="conversing_ended",
+                    location="",
+                    target_agent_id=resident,
+                )
+            )
         self._sync_players_present()
-        return True
+        return ended
 
     def tick(self) -> TickResult:
         self._sync_players_present()
