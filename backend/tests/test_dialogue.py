@@ -10,7 +10,7 @@ import pytest
 from app import config
 from app.models.schemas import Intent, TargetRef
 from app.simulation.llm_session import DecisionJob, service_pending
-from app.simulation.player_talk import Dossier, open_token
+from app.simulation.player_talk import Dossier, _allowed_for, open_token
 from app.simulation.poi import POIS
 from app.simulation.world import World
 from app.websocket.manager import manager
@@ -322,3 +322,77 @@ def test_slow_clock_does_not_age_llm_minutes(monkeypatch: pytest.MonkeyPatch) ->
     world.tick()
     assert world.time == "08:00"
     assert world.llm.now_minutes == before
+
+
+def _capture(world: World, token: str, target: str, text: str) -> str:
+    seen: list[list[dict[str, str]]] = []
+
+    async def fake(messages, _schema):
+        seen.append(messages)
+        return _OK
+
+    assert world.llm is not None
+    world.llm.decider = fake
+    assert world.apply_intent("player_test", _talk(text, target=target), 1).ok
+    asyncio.run(service_pending(world.llm))
+    return "\n".join(part["content"] for part in seen[0])
+
+
+def test_alex_prompt_states_his_lie_in_the_first_person() -> None:
+    async def unused(_messages, _schema):
+        return _OK
+
+    world, token = _world(unused)
+    dossier = world.dossiers[token]
+    assert isinstance(dossier, Dossier)
+    dossier.trust["alex"] = 0
+    _place(world, "player_test", "alex_home")
+    _place(world, "alex", "alex_home")
+    blob = _capture(world, token, "alex", "你早上在哪")
+    insist = blob.split("你要堅持的說法：\n", 1)[1].split("\n\n最近的對話", 1)[0]
+    assert "今天鎮上的事：今天開店前，咖啡廳櫃檯的錢盒是空的。" in blob
+    assert "alex_was_home（whereabouts）：七點以前我一直在家睡覺。" in insist
+    assert "rin_saw_alex" not in blob
+    assert "Alex 說七點以前他一直在家裡睡覺" not in blob
+
+
+def test_rin_prompt_lists_truths_with_tags_when_trusted() -> None:
+    async def unused(_messages, _schema):
+        return _OK
+
+    world, token = _world(unused)
+    dossier = world.dossiers[token]
+    assert isinstance(dossier, Dossier)
+    dossier.trust["rin"] = 50
+    dossier.notes.append("mina_closed_full")
+    _place(world, "player_test", "library")
+    _place(world, "rin", "library")
+    blob = _capture(world, token, "rin", "你看到誰")
+    known = blob.split("你知道、可以說的事：\n", 1)[1]
+    known = known.split("\n\n你要堅持的說法", 1)[0]
+    assert "rin_saw_alex（whereabouts、cafe）" in known
+    assert "早上七點十分，我看見 Alex 從咖啡廳側門出來。" in known
+    assert "rin_alibi（whereabouts）" in known
+    assert "七點半我已經在圖書館排今天的書架。" in known
+
+
+def test_allow_list_keeps_the_lower_trust_facts() -> None:
+    facts: list[dict[str, object]] = []
+    for index in range(9):
+        facts.append(
+            {
+                "id": "high" if index == 0 else f"low{index}",
+                "public": False,
+                "holders": ["mina"],
+                "requires_trust": 70 if index == 0 else 0,
+                "requires_evidence": [],
+                "kind": "truth",
+                "text": "一句",
+                "tags": ["cash"],
+            }
+        )
+    world = World()
+    world.case = {"public_brief": "假公告", "facts": facts}
+    kept = _allowed_for(world, Dossier(), "mina", 80.0)
+    assert [fact["id"] for fact in kept] == [f"low{index}" for index in range(1, 9)]
+    assert all(fact["requires_trust"] == 0 for fact in kept)

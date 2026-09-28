@@ -249,6 +249,8 @@ func _click_move() -> void:
 	var view := get_viewport().get_visible_rect().size
 	if mouse.y >= view.y - 370.0 and mouse.x < 500.0:
 		return
+	if _hud.has_method("blocks_pointer") and _hud.blocks_pointer(mouse):
+		return
 	if mouse.y >= view.y - 150.0 and mouse.x < 660.0:
 		return
 	var world_at: Vector2 = _world.get_global_mouse_position()
@@ -371,6 +373,8 @@ func _on_dialogue(data: Dictionary) -> void:
 			str(data.get("speaker_id", "")),
 			str(data.get("reply", "")),
 		)
+	if data.has("notes") and _hud.has_method("set_notes"):
+		_hud.set_notes(data.get("notes"))
 
 
 func _show_local_reason(reason: String) -> void:

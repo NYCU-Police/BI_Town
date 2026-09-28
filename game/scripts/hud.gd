@@ -35,6 +35,8 @@ var _dialogue_log: RichTextLabel
 var _dialogue_status: Label
 var _dialogue_line: LineEdit
 var _talk_lines: PackedStringArray = PackedStringArray()
+var _notebook: Panel
+var _notebook_log: RichTextLabel
 var _waiting := false
 var _wait_name := ""
 var _dot_phase := 0
@@ -60,6 +62,7 @@ func _ready() -> void:
 	])
 	_request_health()
 	_build_dialogue()
+	_build_notebook()
 
 
 func apply_snapshot(data: Dictionary) -> void:
@@ -75,6 +78,7 @@ func apply_snapshot(data: Dictionary) -> void:
 		push_error("world_snapshot.agents is not an array")
 
 	_restore_dialogue(data.get("dialogue_history", []))
+	set_notes(data.get("notes", []))
 	if _event_log.has_method("clear_events"):
 		_event_log.clear_events()
 	var events: Variant = data.get("events", [])
@@ -511,6 +515,76 @@ func _join_header(parts: Array) -> String:
 			glued += _tone("\u00A0", _SAID_COLOR)
 		glued += parts[index]
 	return glued
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if key.pressed and not key.echo and key.keycode == KEY_N:
+			if _notebook != null:
+				_notebook.visible = not _notebook.visible
+			get_viewport().set_input_as_handled()
+
+
+func blocks_pointer(point: Vector2) -> bool:
+	return (
+		_notebook != null
+		and _notebook.visible
+		and _notebook.get_global_rect().has_point(point)
+	)
+
+
+func set_notes(notes: Variant) -> void:
+	if _notebook_log == null:
+		return
+	var lines: PackedStringArray = PackedStringArray()
+	if typeof(notes) == TYPE_ARRAY:
+		for item in notes:
+			lines.append(str(item))
+	if lines.is_empty():
+		_notebook_log.text = "還沒有筆記。"
+	else:
+		_notebook_log.text = "\n".join(lines)
+
+
+func _build_notebook() -> void:
+	_notebook = Panel.new()
+	_notebook.name = "Notebook"
+	_notebook.visible = false
+	_notebook.anchor_left = 0.0
+	_notebook.anchor_top = 0.0
+	_notebook.anchor_right = 0.0
+	_notebook.anchor_bottom = 0.0
+	_notebook.offset_left = 16.0
+	_notebook.offset_top = 56.0
+	_notebook.offset_right = 336.0
+	_notebook.offset_bottom = 320.0
+	_notebook.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#1c1916")
+	style.set_corner_radius_all(6)
+	_notebook.add_theme_stylebox_override("panel", style)
+	add_child(_notebook)
+
+	var title := Label.new()
+	title.text = "筆記"
+	title.offset_left = 10.0
+	title.offset_top = 8.0
+	title.offset_right = 300.0
+	title.offset_bottom = 28.0
+	title.add_theme_color_override("font_color", Color("#f4f0e6"))
+	_notebook.add_child(title)
+
+	_notebook_log = RichTextLabel.new()
+	_notebook_log.bbcode_enabled = false
+	_notebook_log.offset_left = 10.0
+	_notebook_log.offset_top = 32.0
+	_notebook_log.offset_right = 310.0
+	_notebook_log.offset_bottom = 254.0
+	_notebook_log.mouse_filter = Control.MOUSE_FILTER_STOP
+	_notebook_log.add_theme_color_override("default_color", Color("#f4f0e6"))
+	_notebook_log.text = "還沒有筆記。"
+	_notebook.add_child(_notebook_log)
 
 
 func _build_dialogue() -> void:

@@ -10,6 +10,8 @@ func _ready() -> void:
 	_network.agent_updated.connect(_on_agent_update)
 	_network.event_received.connect(_on_event)
 	_network.connection_changed.connect(_on_connection)
+	if _network.has_signal("notebook_received"):
+		_network.notebook_received.connect(_on_notebook)
 
 
 func _on_snapshot(data: Dictionary) -> void:
@@ -20,6 +22,13 @@ func _on_snapshot(data: Dictionary) -> void:
 func _on_agent_update(data: Dictionary) -> void:
 	_world.apply_agent_update(data)
 	_hud.apply_agent_update(data)
+
+
+func _on_notebook(message: Dictionary) -> void:
+	if _hud.has_method("set_notes"):
+		_hud.set_notes(message.get("notes", []))
+	if _world.has_method("set_notice"):
+		_world.set_notice(str(message.get("notice", "")))
 
 
 func _on_event(data: Dictionary) -> void:

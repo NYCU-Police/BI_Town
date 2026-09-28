@@ -91,6 +91,8 @@ class WorldSnapshot(BaseModel):
     events: list[WorldEvent]
     you: str | None = None
     dialogue_history: list[DialogueTurn] = Field(default_factory=list)
+    notice: str = ""
+    notes: list[str] = Field(default_factory=list)
 
 
 class WorldSnapshotMessage(BaseModel):
@@ -103,6 +105,7 @@ class AgentUpdateData(BaseModel):
     time: str
     agents: list[Agent]
     removed: list[str] | None = None
+    notice: str | None = None
 
 
 class AgentUpdateMessage(BaseModel):
@@ -147,3 +150,4 @@ class DialogueResultMessage(BaseModel):
     mood: str
     reason: str | None = None
     revealed_fact_ids: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
