@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,16 @@ from app.simulation.player_talk import (
 from app.simulation.poi import POIS
 from app.simulation.world import World
 from app.websocket.manager import manager
+
+
+def test_packaged_case_schema_matches_the_repo_copy() -> None:
+    root = Path(__file__).resolve().parents[2]
+    left = (root / "schemas" / "case.schema.json").read_bytes()
+    right = (
+        root / "backend" / "app" / "simulation" / "cases" / "case.schema.json"
+    ).read_bytes()
+    assert left == right
+
 
 _PUBLIC = "今天開店前，咖啡廳櫃檯的錢盒是空的。"
 _MINA = "Mina 說昨天打烊時錢盒是滿的，鎖只有打烊的人會碰。"

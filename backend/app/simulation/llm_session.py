@@ -887,6 +887,7 @@ class DecisionJob:
     player_id: str = ""
     enqueued_at: float = 0.0
     allowed_fact_ids: tuple[str, ...] = ()
+    confront_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -1006,6 +1007,20 @@ class LlmSession:
         job: DecisionJob,
     ) -> list[WorldEvent]:
         events: list[WorldEvent] = []
+        if self.talk_world is not None:
+            from app.simulation.gossip import rewrite_action
+
+            action, target = rewrite_action(
+                self.talk_world,
+                actor.id,
+                decision.action,
+                decision.target,
+                actor.location,
+            )
+            if action != decision.action or target != decision.target:
+                decision = decision.model_copy(
+                    update={"action": action, "target": target}
+                )
         self._observe(actor)
         actor.last_thought = decision.thought.strip()
         thought = actor.last_thought

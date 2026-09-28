@@ -13,6 +13,7 @@ const _NAMES := {
 
 var _player_id := ""
 var _location := ""
+var _state := "idle"
 var _tools: Array = []
 var _items: Array = []
 var _selected := 0
@@ -32,6 +33,10 @@ func _ready() -> void:
 	_network.dialogue_received.connect(_on_dialogue)
 	if _hud.has_signal("talk_submitted"):
 		_hud.talk_submitted.connect(_on_talk_submitted)
+	if _hud.has_signal("note_presented"):
+		_hud.note_presented.connect(_on_present)
+	if _hud.has_signal("dialogue_target_changed"):
+		_hud.dialogue_target_changed.connect(_refresh_confront_target)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -131,7 +136,7 @@ func _reason_text(reason: String) -> String:
 				return "這裡沒有麵包"
 			return "這裡沒有那樣東西"
 		"not_here":
-			if _last_action == "give" or _last_action == "talk":
+			if _last_action == "give" or _last_action == "talk" or _last_action == "present_evidence":
 				return "對方不在這裡"
 			return "還沒走到那個地方"
 		"not_food":
@@ -144,6 +149,8 @@ func _reason_text(reason: String) -> String:
 			return "找不到對方"
 		"npc_unavailable":
 			return "他好像沒空理你。"
+		"not_in_notes":
+			return "筆記裡沒有這條"
 		"too_long":
 			return "這句話太長了。"
 		"talk_limited":
@@ -179,6 +186,7 @@ func _remember(agent: Dictionary) -> void:
 	var info: Dictionary = _others.get(agent_id, {})
 	info["location"] = str(agent.get("location", ""))
 	info["state"] = str(agent.get("state", ""))
+	info["collapsed"] = bool(agent.get("collapsed", false))
 	info["name"] = str(agent.get("name", agent_id))
 	var needs: Variant = agent.get("needs", null)
 	if typeof(needs) == TYPE_DICTIONARY:
@@ -191,6 +199,7 @@ func _remember(agent: Dictionary) -> void:
 	if agent_id != _player_id:
 		return
 	_location = str(agent.get("location", ""))
+	_state = str(agent.get("state", ""))
 	if agent.has("tools"):
 		_tools = agent.get("tools", [])
 	if agent.has("items"):
@@ -199,6 +208,7 @@ func _remember(agent: Dictionary) -> void:
 			_selected = 0
 	if info.has("hunger") and _hud.has_method("set_needs"):
 		_hud.set_needs(int(info["hunger"]), int(info["energy"]), int(info["social"]))
+	_refresh_confront_target()
 
 
 func _refresh_hotbar() -> void:
@@ -354,6 +364,39 @@ func _send_intent(intent: Dictionary) -> void:
 		_talk_seq = seq
 
 
+func _refresh_confront_target() -> void:
+	if not _hud.has_method("set_confront_target"):
+		return
+	var speaker := ""
+	if _hud.has_method("dialogue_speaker"):
+		speaker = str(_hud.dialogue_speaker())
+	if speaker.is_empty() or _state == "walking" or _location.is_empty():
+		_hud.set_confront_target("")
+		return
+	var info: Dictionary = _others.get(speaker, {})
+	var here := str(info.get("location", "")) == _location
+	var standing := str(info.get("state", "")) != "walking"
+	var awake := not bool(info.get("collapsed", false))
+	if here and standing and awake:
+		_hud.set_confront_target(speaker)
+	else:
+		_hud.set_confront_target("")
+
+
+func _on_present(fact_id: String) -> void:
+	var speaker := ""
+	if _hud.has_method("dialogue_speaker"):
+		speaker = str(_hud.dialogue_speaker())
+	if speaker.is_empty():
+		_show_local_reason("not_here")
+		return
+	_send_intent({
+		"action": "present_evidence",
+		"target": {"type": "agent", "id": speaker},
+		"fact_id": fact_id,
+	})
+
+
 func _on_talk_submitted(text: String) -> void:
 	if _talk_target.is_empty():
 		_show_local_reason("unknown_agent")
@@ -374,7 +417,14 @@ func _on_dialogue(data: Dictionary) -> void:
 			str(data.get("reply", "")),
 		)
 	if data.has("notes") and _hud.has_method("set_notes"):
-		_hud.set_notes(data.get("notes"))
+		var before := 0
+		if _hud.has_method("note_count"):
+			before = int(_hud.note_count())
+		_hud.set_notes(data.get("notes"), data.get("note_ids", []))
+		if _hud.has_method("note_count") and int(_hud.note_count()) > before:
+			var audio := get_node_or_null("../GameAudio")
+			if audio != null and audio.has_method("present_event"):
+				audio.present_event({"event": "gave"})
 
 
 func _show_local_reason(reason: String) -> void:

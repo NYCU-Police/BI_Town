@@ -16,7 +16,15 @@ WorldEventType = Literal[
     "conversing",
     "conversing_ended",
 ]
-IntentAction = Literal["move_to", "pick_up", "eat", "give", "use_tool", "talk"]
+IntentAction = Literal[
+    "move_to",
+    "pick_up",
+    "eat",
+    "give",
+    "use_tool",
+    "talk",
+    "present_evidence",
+]
 TargetType = Literal["agent", "poi"]
 
 
@@ -93,6 +101,7 @@ class WorldSnapshot(BaseModel):
     dialogue_history: list[DialogueTurn] = Field(default_factory=list)
     notice: str = ""
     notes: list[str] = Field(default_factory=list)
+    note_ids: list[str] = Field(default_factory=list)
 
 
 class WorldSnapshotMessage(BaseModel):
@@ -128,6 +137,7 @@ class Intent(BaseModel):
     target: TargetRef | None = None
     item: str | None = None
     text: str | None = None
+    fact_id: str | None = None
 
 
 class IntentResultMessage(BaseModel):
@@ -151,3 +161,4 @@ class DialogueResultMessage(BaseModel):
     reason: str | None = None
     revealed_fact_ids: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    note_ids: list[str] = Field(default_factory=list)

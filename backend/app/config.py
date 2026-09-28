@@ -106,6 +106,14 @@ TRUST_TALK = 2
 TRUST_TALK_CAP_PER_ROUND = 10
 TRUST_HUNGER_PENALTY = 20
 TRUST_SOLVE_MAX = 40
+GOSSIP_INTERVAL_MINUTES = 20
+CULPRIT_AVOID_MINUTES = 60
+CONFRONT_CRACK_REPLY = "……這句我沒辦法再照原樣說。"
+WORK_PLACES = {
+    "mina": ("cafe", "office"),
+    "alex": ("cafe", "office"),
+    "rin": ("library",),
+}
 
 LLM_QUEUE_MAX = 8
 DIALOGUE_TIMEOUT_SECONDS = 20.0
