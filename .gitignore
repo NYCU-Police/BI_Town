@@ -33,6 +33,9 @@ htmlcov/
 # Web export artifacts (preset itself is tracked)
 game/build/
 
+# Art drop folder. Imported packs live under game/assets/packs/.
+game/assets/_incoming/
+
 # Local LLM POC transcripts
 poc_output/
 

@@ -16,12 +16,18 @@ static func apply(sprite: Sprite2D, host: Node, content_id: String) -> void:
 	var resolved := _resolve(content_id)
 	var previous := host.get_node_or_null("Fallback")
 	if resolved.is_empty():
-		_show_placeholder(sprite, host, content_id, previous)
+		if _uses_placeholder(content_id):
+			_show_placeholder(sprite, host, content_id, previous)
+		else:
+			_clear_sprite(sprite, previous)
 		return
 	var texture := load(resolved) as Texture2D
 	if texture == null:
 		_warn_once(content_id, "could not load %s, using placeholder" % resolved)
-		_show_placeholder(sprite, host, content_id, previous)
+		if _uses_placeholder(content_id):
+			_show_placeholder(sprite, host, content_id, previous)
+		else:
+			_clear_sprite(sprite, previous)
 		return
 	sprite.texture = texture
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -42,14 +48,20 @@ static func apply_icon(host: Control, content_id: String) -> void:
 	if resolved.is_empty():
 		if existing_icon != null:
 			existing_icon.queue_free()
-		_show_control_placeholder(host, content_id, existing_block)
+		if _uses_placeholder(content_id):
+			_show_control_placeholder(host, content_id, existing_block)
+		elif existing_block != null:
+			existing_block.queue_free()
 		return
 	var texture := load(resolved) as Texture2D
 	if texture == null:
 		_warn_once(content_id, "could not load %s, using placeholder" % resolved)
 		if existing_icon != null:
 			existing_icon.queue_free()
-		_show_control_placeholder(host, content_id, existing_block)
+		if _uses_placeholder(content_id):
+			_show_control_placeholder(host, content_id, existing_block)
+		elif existing_block != null:
+			existing_block.queue_free()
 		return
 	var icon := existing_icon as TextureRect
 	if icon == null:
@@ -92,6 +104,9 @@ static func _resolve(content_id: String) -> String:
 	var user_path := _USER_PATH % [category, file_name]
 	if ResourceLoader.exists(user_path):
 		return user_path
+	# TileMap already draws these. A user pack may still override it.
+	if str(entry.get("kind", "")) == "none":
+		return ""
 	var default_path := _DEFAULT_PATH % [category, file_name]
 	if ResourceLoader.exists(default_path):
 		return default_path
@@ -120,11 +135,11 @@ static func _show_placeholder(
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var label := Label.new()
 	label.text = content_id
-	label.position = Vector2(rect.position.x, rect.position.y - 14.0)
-	label.size = Vector2(maxf(box.x, 48.0), 14.0)
+	label.position = Vector2(rect.position.x, rect.position.y - 16.0)
+	label.size = Vector2(maxf(box.x, 48.0), 16.0)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.add_theme_font_size_override("font_size", 8)
+	label.add_theme_font_size_override("font_size", 12)
 	label.add_theme_color_override("font_color", Color.WHITE)
 	fallback.add_child(rect)
 	fallback.add_child(label)
@@ -186,11 +201,23 @@ static func _placeholder_color(content_id: String) -> Color:
 	return Color.html(hex)
 
 
+static func _uses_placeholder(content_id: String) -> bool:
+	return str(_entry(_lookup_key(content_id)).get("kind", "sprite")) != "none"
+
+
+static func _clear_sprite(sprite: Sprite2D, previous: Node) -> void:
+	sprite.texture = null
+	sprite.visible = false
+	if previous != null:
+		previous.queue_free()
+
+
 static func _warn_once(content_id: String, detail: String) -> void:
-	if _warned.has(content_id):
+	var key := _lookup_key(content_id)
+	if _warned.has(key):
 		return
-	_warned[content_id] = true
-	push_warning("VisualBinder %s %s" % [content_id, detail])
+	_warned[key] = true
+	push_warning("VisualBinder %s %s" % [key, detail])
 
 
 static func _log_once(content_id: String, path: String) -> void:

@@ -1,62 +1,62 @@
 {
   "poi.mina_home": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],
     "placeholder_color": "#c47a6a"
   },
   "poi.alex_home": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],
     "placeholder_color": "#6aa8b0"
   },
   "poi.rin_home": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],
     "placeholder_color": "#d4b15a"
   },
   "poi.cafe": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],
     "placeholder_color": "#b87a47"
   },
   "poi.store": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],
     "placeholder_color": "#7a8f62"
   },
   "poi.office": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],
     "placeholder_color": "#6e7c93"
   },
   "poi.library": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],
     "placeholder_color": "#8a6e55"
   },
   "poi.plaza": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],
     "placeholder_color": "#8d8a7a"
   },
   "poi.park": {
-    "kind": "sprite",
+    "kind": "none",
     "category": "poi",
     "footprint": [32, 32],
     "origin": [0.5, 1.0],

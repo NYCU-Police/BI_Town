@@ -9,6 +9,16 @@ _VECTOR = re.compile(
 )
 
 
+_NAME = re.compile(r'"([a-z_]+)"\s*:\s*"([^"]*)"')
+
+
+def test_godot_place_names_match_poi() -> None:
+    text = _GODOT.read_text(encoding="utf-8")
+    block = text.split("const POI_NAMES := {", 1)[1].split("}", 1)[0]
+    found = {match.group(1): match.group(2) for match in _NAME.finditer(block)}
+    assert found == {poi_id: poi.name for poi_id, poi in POIS.items()}
+
+
 def test_godot_place_ids_and_coordinates_match_poi() -> None:
     text = _GODOT.read_text(encoding="utf-8")
     block = text.split("const POIS := {", 1)[1].split("}", 1)[0]

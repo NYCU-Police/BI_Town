@@ -5,7 +5,7 @@ import time
 
 from app import state
 from app.config import LLM_DIALOGUE_COOLDOWN_MINUTES
-from app.simulation.llm_session import service_pending
+from app.simulation.llm_session import SYSTEM_PROMPT, service_pending
 from app.simulation.loop import broadcast_tick
 from app.simulation.poi import POIS
 from app.simulation.world import World
@@ -56,6 +56,26 @@ def test_llm_decisions_emit_said_and_thought() -> None:
     assert {event.content for event in said} == {"早安"}
     assert {event.content for event in thought} == {"先看看周圍"}
     assert world.time == "08:02"
+
+
+def test_simplified_say_and_thought_are_stored_as_traditional() -> None:
+    simplified = (
+        '{"action":"stay","target":"","say":"我在这里写程序","thought":"软件还没好"}'
+    )
+
+    async def fake(_messages: list[dict[str, str]], _schema: dict) -> str:
+        return simplified
+
+    world = World(brain_mode="llm", decider=fake)
+    world.tick()
+    assert world.llm is not None
+    asyncio.run(service_pending(world.llm))
+    result = world.tick()
+    said = [event.content for event in result.events if event.event == "said"]
+    thought = [event.content for event in result.events if event.event == "thought"]
+    assert said == ["我在這裡寫程式"] * 3
+    assert thought == ["軟體還沒好"] * 3
+    assert "必須使用繁體中文" in SYSTEM_PROMPT
 
 
 def test_tick_does_not_wait_for_the_model() -> None:
