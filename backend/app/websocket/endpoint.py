@@ -14,7 +14,7 @@ from app.models.schemas import (
     WorldEvent,
     WorldSnapshotMessage,
 )
-from app.simulation.player_talk import history_payload, note_texts, open_token
+from app.simulation.player_talk import history_payload, note_ids, note_texts, open_token
 from app.websocket.broadcast import broadcast_changes
 from app.websocket.manager import manager
 
@@ -67,6 +67,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         snapshot.you = player_id
         snapshot.dialogue_history = history_payload(state.world, token)
         snapshot.notes = note_texts(state.world, token)
+        snapshot.note_ids = note_ids(state.world, token)
         message = WorldSnapshotMessage(data=snapshot)
         await websocket.send_json(message.model_dump(exclude_none=True))
         if entered is not None or old_id is not None:

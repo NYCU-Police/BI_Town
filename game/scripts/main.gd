@@ -26,7 +26,7 @@ func _on_agent_update(data: Dictionary) -> void:
 
 func _on_notebook(message: Dictionary) -> void:
 	if _hud.has_method("set_notes"):
-		_hud.set_notes(message.get("notes", []))
+		_hud.set_notes(message.get("notes", []), message.get("note_ids", []))
 	if _world.has_method("set_notice"):
 		_world.set_notice(str(message.get("notice", "")))
 

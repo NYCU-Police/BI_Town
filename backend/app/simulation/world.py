@@ -126,6 +126,10 @@ class World:
             self._sent_needs[agent_id] = self._rounded(agent_id)
         self.case: dict[str, object] = {}
         self.notebook_dirty = False
+        self.asked_tags: dict[str, dict[str, set[str]]] = {}
+        self.heard_tags: dict[str, dict[str, set[str]]] = {}
+        self.avoid_until: dict[str, dict[str, int]] = {}
+        self.gossip_wait: dict[tuple[str, str], int] = {}
         self._install_case(self.day, reset_notes=False)
 
     def add_event(self, event: WorldEvent) -> None:
@@ -218,6 +222,9 @@ class World:
         return TickResult(events=events, changed_agents=self._pack(changed))
 
     def _tick_minute(self) -> TickResult:
+        from app.simulation.gossip import tick_gossip
+
+        tick_gossip(self)
         self._respawn_bread()
         if self.llm is None:
             return self._tick_rules()
@@ -282,7 +289,7 @@ class World:
             return self._intent_give(agent, intent)
         if action == "use_tool":
             return self._intent_use_tool(agent, intent)
-        if action == "talk":
+        if action == "talk" or action == "present_evidence":
             from app.simulation.player_talk import submit_talk
 
             return submit_talk(self, player_id, intent, client_seq)

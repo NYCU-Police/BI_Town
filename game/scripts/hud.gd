@@ -1,6 +1,7 @@
 extends CanvasLayer
 
 signal talk_submitted(text: String)
+signal note_presented(fact_id: String)
 
 const _MATCH_COLOR := Color(0.65, 0.67, 0.64)
 const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
@@ -36,7 +37,10 @@ var _dialogue_status: Label
 var _dialogue_line: LineEdit
 var _talk_lines: PackedStringArray = PackedStringArray()
 var _notebook: Panel
-var _notebook_log: RichTextLabel
+var _note_box: VBoxContainer
+var _note_texts: PackedStringArray = PackedStringArray()
+var _note_fact_ids: PackedStringArray = PackedStringArray()
+var _confront_target := ""
 var _waiting := false
 var _wait_name := ""
 var _dot_phase := 0
@@ -78,7 +82,7 @@ func apply_snapshot(data: Dictionary) -> void:
 		push_error("world_snapshot.agents is not an array")
 
 	_restore_dialogue(data.get("dialogue_history", []))
-	set_notes(data.get("notes", []))
+	set_notes(data.get("notes", []), data.get("note_ids", []))
 	if _event_log.has_method("clear_events"):
 		_event_log.clear_events()
 	var events: Variant = data.get("events", [])
@@ -534,17 +538,63 @@ func blocks_pointer(point: Vector2) -> bool:
 	)
 
 
-func set_notes(notes: Variant) -> void:
-	if _notebook_log == null:
+func note_count() -> int:
+	return _note_texts.size()
+
+
+func set_confront_target(agent_id: String) -> void:
+	if _confront_target == agent_id:
 		return
-	var lines: PackedStringArray = PackedStringArray()
+	_confront_target = agent_id
+	_rebuild_notes()
+
+
+func set_notes(notes: Variant, ids: Variant = null) -> void:
+	_note_texts = PackedStringArray()
+	_note_fact_ids = PackedStringArray()
 	if typeof(notes) == TYPE_ARRAY:
-		for item in notes:
-			lines.append(str(item))
-	if lines.is_empty():
-		_notebook_log.text = "還沒有筆記。"
-	else:
-		_notebook_log.text = "\n".join(lines)
+		for index in notes.size():
+			_note_texts.append(str(notes[index]))
+			var fact_id := ""
+			if typeof(ids) == TYPE_ARRAY and index < ids.size():
+				fact_id = str(ids[index])
+			_note_fact_ids.append(fact_id)
+	_rebuild_notes()
+
+
+func _rebuild_notes() -> void:
+	if _note_box == null:
+		return
+	for child in _note_box.get_children():
+		_note_box.remove_child(child)
+		child.free()
+	if _note_texts.is_empty():
+		var empty := Label.new()
+		empty.text = "還沒有筆記。"
+		empty.add_theme_color_override("font_color", Color("#f4f0e6"))
+		_note_box.add_child(empty)
+		return
+	for index in _note_texts.size():
+		var row := HBoxContainer.new()
+		var button := Button.new()
+		button.text = "出示"
+		var fact_id := str(_note_fact_ids[index])
+		button.disabled = _confront_target.is_empty() or fact_id.is_empty()
+		button.pressed.connect(_present_note.bind(fact_id))
+		var label := Label.new()
+		label.text = str(_note_texts[index])
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		label.add_theme_color_override("font_color", Color("#f4f0e6"))
+		row.add_child(button)
+		row.add_child(label)
+		_note_box.add_child(row)
+
+
+func _present_note(fact_id: String) -> void:
+	if fact_id.is_empty() or _confront_target.is_empty():
+		return
+	note_presented.emit(fact_id)
 
 
 func _build_notebook() -> void:
@@ -575,16 +625,17 @@ func _build_notebook() -> void:
 	title.add_theme_color_override("font_color", Color("#f4f0e6"))
 	_notebook.add_child(title)
 
-	_notebook_log = RichTextLabel.new()
-	_notebook_log.bbcode_enabled = false
-	_notebook_log.offset_left = 10.0
-	_notebook_log.offset_top = 32.0
-	_notebook_log.offset_right = 310.0
-	_notebook_log.offset_bottom = 254.0
-	_notebook_log.mouse_filter = Control.MOUSE_FILTER_STOP
-	_notebook_log.add_theme_color_override("default_color", Color("#f4f0e6"))
-	_notebook_log.text = "還沒有筆記。"
-	_notebook.add_child(_notebook_log)
+	var scroll := ScrollContainer.new()
+	scroll.offset_left = 10.0
+	scroll.offset_top = 32.0
+	scroll.offset_right = 310.0
+	scroll.offset_bottom = 254.0
+	scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	_notebook.add_child(scroll)
+	_note_box = VBoxContainer.new()
+	_note_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_note_box)
+	_rebuild_notes()
 
 
 func _build_dialogue() -> void:

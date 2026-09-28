@@ -596,6 +596,9 @@ HUD 把 `npc_unavailable` 顯示成「他好像沒空理你。」不呼叫模型
 | `DIALOGUE_MEMORY_TURNS` | `6` | 提示裡只放這位玩家與這位居民的最近輪數 |
 | `DIALOGUE_MAX_FACTS_IN_PROMPT` | `8` | 允許清單超過就留下信任門檻較低的 |
 | `DIALOGUE_REPLY_MAX_CHARS` | `80` | 回覆超過就截斷再送 |
+| `CONFRONT_CRACK_REPLY` | `……這句我沒辦法再照原樣說。` | 對質時模型沒交回 `truth_id`，對話框用這句。筆記另寫該事實的 `crack_text` |
+| `GOSSIP_INTERVAL_MINUTES` | `20` | 兩名居民同地且都站著時，每隔這麼多遊戲分鐘互傳標籤 |
+| `CULPRIT_AVOID_MINUTES` | `60` | 犯人避開一位玩家的遊戲分鐘，過了就恢復 |
 
 受理當下先回 `intent_result`，`ok: true`。之後才有 `dialogue_result`。
 
