@@ -1,9 +1,14 @@
+import json
 import logging
+import time
+from collections import deque
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
-from app import state
-from app.models.schemas import WorldSnapshotMessage
+from app import config, state
+from app.models.schemas import Intent, IntentResultMessage, WorldSnapshotMessage
+from app.websocket.broadcast import broadcast_changes
 from app.websocket.manager import manager
 
 logger = logging.getLogger(__name__)
@@ -11,17 +16,93 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _result(client_seq: int, ok: bool, reason: str | None) -> dict[str, object]:
+    return IntentResultMessage(
+        client_seq=client_seq,
+        ok=ok,
+        reason=reason,
+    ).model_dump()
+
+
+def _client_seq(payload: object) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    seq = payload.get("client_seq", 0)
+    if type(seq) is not int:
+        return 0
+    return seq
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
-    await manager.connect(websocket)
+    player_id = await manager.connect(websocket)
+    recent: deque[float] = deque()
     try:
-        snapshot = WorldSnapshotMessage(data=state.world.snapshot())
-        await websocket.send_json(snapshot.model_dump(exclude_none=True))
+        if player_id is not None:
+            entered = state.world.add_player(player_id)
+        else:
+            entered = None
+        snapshot = state.world.snapshot()
+        snapshot.you = player_id
+        message = WorldSnapshotMessage(data=snapshot)
+        await websocket.send_json(message.model_dump(exclude_none=True))
+        if entered is not None:
+            await broadcast_changes([], [entered], exclude=websocket)
         while True:
-            await websocket.receive_text()
+            text = await websocket.receive_text()
+            await _handle_text(websocket, player_id, text, recent)
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
     except Exception:
         logger.exception("WebSocket error")
     finally:
-        manager.disconnect(websocket)
+        removed_id = manager.disconnect(websocket)
+        if removed_id is not None and state.world.remove_player(removed_id):
+            await broadcast_changes([], [], removed=[removed_id])
+
+
+async def _handle_text(
+    websocket: WebSocket,
+    player_id: str | None,
+    text: str,
+    recent: deque[float],
+) -> None:
+    if len(text.encode("utf-8")) > config.INTENT_MAX_BYTES:
+        await websocket.send_json(_result(0, False, "too_large"))
+        return
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        await websocket.send_json(_result(0, False, "bad_json"))
+        return
+    if not isinstance(payload, dict) or payload.get("type") != "intent":
+        return
+    client_seq = _client_seq(payload)
+    if client_seq == 0 and payload.get("client_seq") != 0:
+        await websocket.send_json(_result(0, False, "bad_intent"))
+        return
+    now = time.monotonic()
+    while recent and now - recent[0] >= 1.0:
+        recent.popleft()
+    if len(recent) >= config.INTENT_RATE_LIMIT_PER_SEC:
+        await websocket.send_json(_result(client_seq, False, "rate_limited"))
+        return
+    recent.append(now)
+    if not config.PLAYER_ENABLED or player_id is None:
+        await websocket.send_json(_result(client_seq, False, "players_disabled"))
+        return
+    raw_intent = payload.get("intent")
+    if isinstance(raw_intent, dict):
+        target = raw_intent.get("target")
+        if isinstance(target, dict) and target.get("type") not in {"agent", "poi"}:
+            await websocket.send_json(_result(client_seq, False, "unsupported_target"))
+            return
+    try:
+        intent = Intent.model_validate(raw_intent)
+    except ValidationError:
+        await websocket.send_json(_result(client_seq, False, "bad_intent"))
+        return
+    outcome = state.world.apply_intent(player_id, intent)
+    await websocket.send_json(_result(client_seq, outcome.ok, outcome.reason))
+    if outcome.ok and (outcome.events or outcome.changed_agents):
+        await broadcast_changes(outcome.events, outcome.changed_agents)

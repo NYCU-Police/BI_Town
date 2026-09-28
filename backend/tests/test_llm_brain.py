@@ -78,10 +78,10 @@ def test_tick_does_not_wait_for_the_model() -> None:
 def test_idle_tick_still_broadcasts_time(monkeypatch) -> None:
     sent: list[dict] = []
 
-    async def capture(payload: dict) -> None:
+    async def capture(payload: dict, exclude: object = None) -> None:
         sent.append(payload)
 
-    monkeypatch.setattr("app.simulation.loop.manager.broadcast", capture)
+    monkeypatch.setattr("app.websocket.broadcast.manager.broadcast", capture)
     world = state.world
     world.time = "10:00"
     for agent in world.agents.values():

@@ -3,26 +3,15 @@ import logging
 
 from app import state
 from app.config import SIMULATION_TICK_SECONDS
-from app.models.schemas import AgentUpdateData, AgentUpdateMessage, WorldEventMessage
 from app.simulation.llm_session import decision_worker
 from app.simulation.world import TickResult
-from app.websocket.manager import manager
+from app.websocket.broadcast import broadcast_changes
 
 logger = logging.getLogger(__name__)
 
 
 async def broadcast_tick(result: TickResult) -> None:
-    message = AgentUpdateMessage(
-        data=AgentUpdateData(
-            day=state.world.day,
-            time=state.world.time,
-            agents=result.changed_agents,
-        )
-    )
-    await manager.broadcast(message.model_dump())
-    for event in result.events:
-        payload = WorldEventMessage(data=event).model_dump(exclude_none=True)
-        await manager.broadcast(payload)
+    await broadcast_changes(result.events, result.changed_agents)
 
 
 async def simulation_loop() -> None:

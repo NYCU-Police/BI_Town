@@ -13,5 +13,8 @@ def test_websocket_connects_and_sends_snapshot() -> None:
         data = message["data"]
         assert data["day"] == INITIAL_DAY
         assert data["time"] == INITIAL_TIME
-        assert {agent["id"] for agent in data["agents"]} == {"mina", "alex"}
+        ids = {agent["id"] for agent in data["agents"]}
+        assert {"mina", "alex"} < ids
+        player_ids = {agent_id for agent_id in ids if agent_id.startswith("player_")}
+        assert player_ids == {data["you"]}
         assert data["events"] == []

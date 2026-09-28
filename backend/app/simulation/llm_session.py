@@ -26,8 +26,6 @@ from app.config import (
     DEFAULT_OLLAMA_URL,
     EAT_FULLNESS_RESTORE,
     EATING_ACTIVITIES,
-    ENERGY_DECAY_PER_MINUTE,
-    FULLNESS_DECAY_PER_MINUTE,
     GAME_MINUTES_PER_TICK,
     INITIAL_DAY,
     INITIAL_TIME,
@@ -56,13 +54,10 @@ from app.config import (
     NEED_TIRED,
     PLAN_MAX_ITEMS,
     PLAN_MIN_ITEMS,
-    REST_ENERGY_PER_MINUTE,
     RESTING_ACTIVITIES,
     REVIEW_HISTORY_DAYS,
-    SLEEP_ENERGY_PER_MINUTE,
     SLEEP_HOUR,
     SLEEPING_ACTIVITIES,
-    SOCIAL_DECAY_PER_MINUTE,
     TALK_SOCIAL_RESTORE,
     WAKE_HOUR,
     current_llm_think,
@@ -70,6 +65,7 @@ from app.config import (
 from app.models.schemas import Agent, Position, WorldEvent
 from app.simulation.clock import advance_clock
 from app.simulation.fake_agent import move_agent
+from app.simulation.needs import NeedValues, is_collapsed, tick_need_values
 from app.simulation.poi import POIS, activities_for, home_for
 
 logger = logging.getLogger(__name__)
@@ -172,6 +168,7 @@ class Resident:
     pending_opening_decision: bool = False
     reviewed_today: bool = False
     review_pending: bool = False
+    collapsed: bool = False
 
     def remember(self, time_str: str, item: str) -> None:
         self.memories.append(f"[{time_str}] {item}")
@@ -886,17 +883,21 @@ class LlmSession:
         self.now_minutes = 0
         self.day = INITIAL_DAY
         self.plans_due = False
+        self._extra_places: list[tuple[str, str]] = []
 
     def advance(
         self,
         time_str: str,
         day: int | None = None,
+        company: list[tuple[str, str]] | None = None,
     ) -> tuple[list[WorldEvent], set[str]]:
         """Apply finished thoughts, walk, and enqueue. Does not call the model."""
         if day is not None:
             self.day = day
+        self._extra_places = company or []
         events: list[WorldEvent] = []
         changed: set[str] = set()
+        changed.update(self._stop_collapsed())
         reply_now = dict(self.dialogue.reply_next)
         self.dialogue.reply_next = {}
         applied: set[str] = set()
@@ -913,6 +914,7 @@ class LlmSession:
         arrivals = self._step(time_str, events, changed)
         self._tick_activities()
         self._tick_needs()
+        changed.update(self._stop_collapsed())
         self._apply_schedule_clock(time_str, events, changed)
         self._enqueue(time_str, reply_now, arrivals)
         for resident in self.residents:
@@ -1042,6 +1044,13 @@ class LlmSession:
             if job.is_reply:
                 self.dialogue.abandon(actor.id, job.partner)
             return events
+        if decision.action == "move_to" and actor.collapsed:
+            actor.state = "idle"
+            actor.target_location = actor.location
+            actor.idle_minutes = 0
+            if job.is_reply:
+                self.dialogue.abandon(actor.id, job.partner)
+            return events
         if decision.action == "move_to" and decision.target == actor.location:
             actor.state = "idle"
             actor.idle_minutes = 0
@@ -1163,6 +1172,24 @@ class LlmSession:
             return
         actor.stay_until_minute = self.now_minutes + LLM_MIN_STAY_MINUTES
 
+    def _has_company(self, resident: Resident) -> bool:
+        for other in self.residents:
+            if other.id != resident.id and other.location == resident.location:
+                return True
+        return any(place == resident.location for _id, place in self._extra_places)
+
+    def _stop_collapsed(self) -> set[str]:
+        changed: set[str] = set()
+        for resident in self.residents:
+            was = resident.state
+            resident.collapsed = is_collapsed(resident.fullness, resident.energy)
+            if resident.collapsed and resident.state == "walking":
+                resident.state = "idle"
+                resident.target_location = resident.location
+            if resident.state != was:
+                changed.add(resident.id)
+        return changed
+
     def _tick_needs(self) -> None:
         for resident in self.residents:
             asleep = resident.state == "sleeping" or (
@@ -1173,24 +1200,19 @@ class LlmSession:
                 resident.state == "doing"
                 and resident.activity_id in RESTING_ACTIVITIES
             )
-            if asleep:
-                resident.energy = _clamp_need(
-                    resident.energy + SLEEP_ENERGY_PER_MINUTE
-                )
-            elif resting:
-                resident.energy = _clamp_need(
-                    resident.energy + REST_ENERGY_PER_MINUTE
-                )
-            else:
-                resident.energy = _clamp_need(
-                    resident.energy - ENERGY_DECAY_PER_MINUTE
-                )
-            resident.fullness = _clamp_need(
-                resident.fullness - FULLNESS_DECAY_PER_MINUTE
+            values = NeedValues(resident.fullness, resident.energy, resident.social)
+            tick_need_values(
+                values,
+                location=resident.location,
+                state=resident.state,
+                company=self._has_company(resident),
+                asleep=asleep,
+                resting=resting,
             )
-            resident.social = _clamp_need(
-                resident.social - SOCIAL_DECAY_PER_MINUTE
-            )
+            resident.fullness = values.hunger
+            resident.energy = values.energy
+            resident.social = values.social
+            resident.collapsed = is_collapsed(resident.fullness, resident.energy)
 
     def _apply_review(
         self,
@@ -1335,7 +1357,7 @@ class LlmSession:
         if not _is_night(time_str):
             return
         for resident in self.residents:
-            if resident.state == "sleeping":
+            if resident.state == "sleeping" or resident.collapsed:
                 continue
             home = home_for(resident.id)
             away = resident.location != home.id or resident.state == "walking"
