@@ -13,8 +13,10 @@ WorldEventType = Literal[
     "gave",
     "picked_up",
     "produced",
+    "conversing",
+    "conversing_ended",
 ]
-IntentAction = Literal["move_to", "pick_up", "eat", "give", "use_tool"]
+IntentAction = Literal["move_to", "pick_up", "eat", "give", "use_tool", "talk"]
 TargetType = Literal["agent", "poi"]
 
 
@@ -113,6 +115,7 @@ class Intent(BaseModel):
     action: IntentAction
     target: TargetRef | None = None
     item: str | None = None
+    text: str | None = None
 
 
 class IntentResultMessage(BaseModel):
@@ -120,3 +123,18 @@ class IntentResultMessage(BaseModel):
     client_seq: int
     ok: bool
     reason: str | None = None
+
+
+class SessionMessage(BaseModel):
+    type: Literal["session"] = "session"
+    player_token: str
+
+
+class DialogueResultMessage(BaseModel):
+    type: Literal["dialogue_result"] = "dialogue_result"
+    client_seq: int
+    speaker_id: str
+    reply: str
+    mood: str
+    reason: str | None = None
+    revealed_fact_ids: list[str] = Field(default_factory=list)

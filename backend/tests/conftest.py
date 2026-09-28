@@ -16,3 +16,6 @@ def fresh_world() -> None:
     reset_world()
     manager._connections.clear()
     manager.players.clear()
+    manager.socket_by_token.clear()
+    manager.token_by_socket.clear()
+    manager.retired.clear()

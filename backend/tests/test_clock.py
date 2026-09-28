@@ -37,3 +37,24 @@ def test_world_tick_rolls_over_to_next_day() -> None:
     world.tick()
     assert world.day == 2
     assert world.time == "00:00"
+
+
+def test_slow_clock_still_walks_every_tick(monkeypatch) -> None:
+    monkeypatch.setenv("GAME_MINUTES_PER_REAL_SECOND", "0.4")
+    world = World()
+    mina = world.agents["mina"]
+    start = (mina.position.x, mina.position.y)
+    hunger = world.bodies["mina"].hunger
+    mina.state = "walking"
+    mina.target_location = "cafe"
+    world.tick()
+    assert world.time == INITIAL_TIME
+    assert (mina.position.x, mina.position.y) != start
+    assert world.bodies["mina"].hunger == hunger
+    assert world._bread_elapsed == 0
+    world.tick()
+    assert world.time == INITIAL_TIME
+    world.tick()
+    assert world.time == "08:01"
+    assert world.bodies["mina"].hunger != hunger
+    assert world._bread_elapsed == GAME_MINUTES_PER_TICK

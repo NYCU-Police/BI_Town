@@ -5,6 +5,7 @@ from app.simulation.llm_session import (
     plan_schema,
     review_schema,
 )
+from app.simulation.player_talk import talk_schema
 from app.simulation.world import World
 
 _ALLOWED = {
@@ -54,6 +55,7 @@ def test_ollama_schemas_omit_keywords_ollama_drops() -> None:
         plan_schema("alex"),
         plan_schema("rin"),
         review_schema(),
+        talk_schema(),
     ]
     for schema in schemas:
         found: set[str] = set()

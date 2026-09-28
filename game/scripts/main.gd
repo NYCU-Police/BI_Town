@@ -29,6 +29,14 @@ func _on_event(data: Dictionary) -> void:
 	var audio := get_node_or_null("GameAudio")
 	if audio != null and audio.has_method("present_event"):
 		audio.present_event(data)
+	if str(data.get("event", "")) == "conversing" or str(data.get("event", "")) == "conversing_ended":
+		if _world.has_method("show_conversing"):
+			_world.show_conversing(
+				str(data.get("agent_id", "")),
+				str(data.get("target_agent_id", "")),
+				str(data.get("event", "")) == "conversing",
+			)
+		return
 	if str(data.get("event", "")) != "said":
 		return
 	if _world.has_method("show_speech"):

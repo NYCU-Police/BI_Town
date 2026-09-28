@@ -30,19 +30,19 @@
 
 ### 2.1 時間倍率
 
-現在是 1 真實秒 = 1 遊戲分鐘：`SIMULATION_TICK_SECONDS = 1`，`GAME_MINUTES_PER_TICK = 1`。08:00 到 18:00 是 600 遊戲分鐘。以現在的倍率，這段只有 10 真實分鐘。
+模擬迴圈仍每 `SIMULATION_TICK_SECONDS = 1.0` 真實秒醒一次。不要把 tick 拉長：那會讓所有角色（含玩家自己）一起變慢。
 
-PR1 把兩者收成一個開關，並可用環境變數覆蓋（與 `BRAIN_MODE` 同一種讀法）：
+時鐘用浮點累加器。每個 tick 加上 `GAME_MINUTES_PER_REAL_SECOND`，累到 1 才推進 1 遊戲分鐘並廣播新時間。還沒滿的 tick 只移動正在走路的人，不結算需求、不補麵包、不跑行程、不推進時鐘。跨過整分鐘的那個 tick 走現在這套「決策 → 移動 → 需求 → 時鐘」，不再額外多走一步。
 
 | 名稱 | 預設 | 說明 |
 | --- | --- | --- |
-| `REAL_SECONDS_PER_GAME_MINUTE` | `1.0` | 未設定環境變數時的預設。維持現在的手感 |
-| `GAME_MINUTES_PER_TICK` | `1` | 每個 tick 仍推進 1 遊戲分鐘 |
-| `SIMULATION_TICK_SECONDS` | 衍生 | 等於 `REAL_SECONDS_PER_GAME_MINUTE * GAME_MINUTES_PER_TICK`，不再單獨手改 |
+| `SIMULATION_TICK_SECONDS` | `1.0` | 迴圈間隔。不拿來當倍率 |
+| `GAME_MINUTES_PER_TICK` | `1` | 累滿之後一次推進的遊戲分鐘 |
+| `GAME_MINUTES_PER_REAL_SECOND` | `1.0` | 每個真實秒累進的遊戲分鐘。環境變數有設且為正數時蓋過預設 |
 
-環境變數 `REAL_SECONDS_PER_GAME_MINUTE` 有設且為正數時，蓋過程式預設。PR1–PR3 測對話時把它設成 `2.5`，08:00–18:00 就是 25 真實分鐘。PR4 只把程式預設從 `1.0` 改成 `2.5`，環境變數仍可蓋過。
+未設定環境變數時是 1.0，手感與現在相同：每真實秒 1 遊戲分鐘。PR4 只把程式預設改成 `0.4`。600 遊戲分鐘 ÷ 0.4 = 1500 真實秒，08:00–18:00 是 25 真實分鐘。PR1–PR3 測對話時自己設 `GAME_MINUTES_PER_REAL_SECOND=0.4`。
 
-副作用：移動是每 tick 50 像素。設成 `2.5` 之後，走路大約慢 2.5 倍。地圖寬 576 像素，橫越約半分鐘。需求按遊戲分鐘扣，飢餓曲線不因倍率改變。
+移動、需求結算的節奏、動畫都跟這個倍率無關，仍是每真實秒一次。需求扣減只在遊戲分鐘真正推進時發生，所以飢餓曲線跟遊戲分鐘走，不跟真實秒走。
 
 `ROUND_START_TIME = "08:00"`，`ASSEMBLY_TIME = "18:00"`。
 
@@ -56,7 +56,7 @@ JSON Schema 在 [`schemas/case.schema.json`](../schemas/case.schema.json)。伺�
 
 ### 3.1 可解性（BFS）
 
-PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外一筆把「指出犯人」的事實改成 `requires_trust = 70` 且拿掉 `unlocked_by` 的對照必須失敗。
+PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外兩筆對照必須失敗。第一筆把「指出犯人」的事實改成 `requires_trust = 70` 且拿掉 `unlocked_by`。第二筆把某條 `requires_evidence` 改成指向一條結構上存在、但搜尋起點與任何邊都到不了的事實。
 
 先做結構檢查，不過就整包退回內建句子：
 
@@ -177,7 +177,7 @@ PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外一�
       "public": false,
       "holders": ["rin"],
       "requires_trust": 40,
-      "requires_evidence": [],
+      "requires_evidence": ["mina_closed_full"],
       "tags": ["whereabouts", "cafe"],
       "kind": "truth",
       "contradicts": ["alex_was_home"]
@@ -211,7 +211,7 @@ PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外一�
 }
 ```
 
-搜尋會走到 `alex_left_home`（`unlocked_by` 含已得的 `rin_saw_alex`）與 `alex_owes`（信任 40）。前者指出 Alex，後者是真動機。
+搜尋會走到 `alex_left_home`（先拿到 `mina_closed_full`，信任夠了才問出 `rin_saw_alex`，再靠 `unlocked_by` 打開）與 `alex_owes`（Mina 持有，信任 40）。前者指出 Alex，後者是真動機。
 
 ### 3.3 撕掉的公告
 
@@ -258,10 +258,10 @@ PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外一�
       "contradicts": []
     },
     {
-      "id": "mina_brushed",
-      "text": "Rin 昨天跟 Mina 說，Mina 沒把她的話聽完。",
+      "id": "alex_heard_brush",
+      "text": "Alex 說 Rin 昨天抱怨 Mina 沒把她的話聽完。",
       "public": false,
-      "holders": ["mina"],
+      "holders": ["alex"],
       "requires_trust": 40,
       "requires_evidence": [],
       "tags": ["grudge"],
@@ -311,7 +311,7 @@ PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外一�
 }
 ```
 
-`alex_saw_rin` 以信任 40 進入已得，於是 `rin_at_board` 被對質邊打開。`mina_brushed` 同樣是信任 40，帶真動機。
+`alex_saw_rin` 以信任 40 進入已得，於是 `rin_at_board` 被對質邊打開。`alex_heard_brush` 由 Alex 持有，同樣是信任 40，帶真動機。
 
 ### 3.4 沒署名的信
 
@@ -359,9 +359,9 @@ PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外一�
     },
     {
       "id": "alex_wanted_notice",
-      "text": "Alex 昨天說 Mina 都只跟 Rin 說話，幾乎不看他。",
+      "text": "Rin 說 Alex 昨天抱怨 Mina 都只跟她說話。",
       "public": false,
-      "holders": ["mina"],
+      "holders": ["rin"],
       "requires_trust": 40,
       "requires_evidence": [],
       "tags": ["attention"],
@@ -411,7 +411,19 @@ PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外一�
 }
 ```
 
-`rin_saw_alex_office` 打開 `alex_wrote`。`alex_wanted_notice` 是真動機。信上指控 Rin，但沒有任何事實的 `implicates` 是 Rin。
+`rin_saw_alex_office` 打開 `alex_wrote`。`alex_wanted_notice` 由 Rin 持有，是真動機。信上指控 Rin，但沒有任何事實的 `implicates` 是 Rin。
+
+### 3.5 範本差異
+
+三份不能長成同一條公式。上面的 JSON 就是 PR2 要做的結構，不另發明。
+
+| 範本 | 真動機的持有者 | 前置 |
+| --- | --- | --- |
+| 不見的開店金 | Mina（`alex_owes`） | `rin_saw_alex` 要先拿到 `mina_closed_full` 才能問 |
+| 撕掉的公告 | Alex（`alex_heard_brush`） | 沒有這條前置 |
+| 沒署名的信 | Rin（`alex_wanted_notice`） | 沒有這條前置 |
+
+動機不再三份都在 Mina 身上。只有開店金把目擊鎖在一條已經拿得到的事實後面。`cash_taken` 本來就要先有打烊，那是同一份裡的另一條前置，不是三份共用的公式。三份仍要通過第 3.1 節的搜尋。
 
 ## 4. 信任、對質、八卦、評分
 
@@ -421,13 +433,13 @@ PR2 用 pytest 覆蓋這個演算法：三份內建案件都通過；另外一�
 
 | 行為 | 常數 | 值 |
 | --- | --- | --- |
-| 給麵包 | `TRUST_GIFT_BREAD` | +18。一份是 20→38，還沒到 40 |
+| 給麵包 | `TRUST_GIFT_BREAD` | +15。一份是 20→35，還沒到 40 |
 | 給木材或其他非食物 | `TRUST_GIFT_OTHER` | +6 |
 | 完成一輪對話 | `TRUST_TALK` | +2。同一居民這一局最多 `TRUST_TALK_CAP_PER_ROUND = 10` |
 | 沒有證據就點名對方是犯人 | `TRUST_ACCUSE_WITHOUT_EVIDENCE` | −8，最低到 0 |
 | 出示真正矛盾的筆記 | — | 0。這是壓力，不是交情 |
 
-門檻只有三檔：0、40、70。兩份麵包是 20+36=56，再加對話上限 10 為 66，仍低於 70。深話要嘛第三份麵包，要嘛對質。咖啡廳庫存上限仍是 `BREAD_STOCK_MAX = 4`。
+證人門檻的設計意圖不是一個麵包就過：要一個麵包再加至少三輪對話，或兩個麵包。一份是 20+15=35，三輪對話再 +6 到 41。兩份是 20+30=50。對話上限 10，兩份麵包加滿對話是 60，仍低於 70。深話要第三份麵包再加上對話，或對質。咖啡廳庫存上限仍是 `BREAD_STOCK_MAX = 4`。
 
 ### 對質
 
@@ -443,7 +455,15 @@ PR1 只做「正在說話」的狀態，不傳播內容。PR3 才傳標籤。
 
 居民之間不傳送事實正文，只傳標籤：哪位玩家問過 `cash`、`whereabouts` 這類 `tags`。兩人站在同一地點、都沒在走路時，每 `GOSSIP_INTERVAL_MINUTES = 20` 遊戲分鐘複製一次。不為此多打一次模型。
 
-犯人收到自己謊言上 `sensitive: true` 的標籤後，對那位玩家設避開。下一次移動由伺服器改寫目的地：玩家在的地點不能當 `stay` 或 `talk_to` 的結果。模型可以說要離開，但不准它決定要不要逃。
+標籤記在說話的那位居民身上，不記在發問的玩家身上。玩家對居民 X 的一輪對話裡，允許清單中被 X 交回的事實，把它們的 `tags` 記進 X 對該玩家的紀錄。模型什麼都沒交回，這一輪就不記標籤。
+
+犯人避開有三條規則，PR3 才做：
+
+- 「問過敏感標籤」以八卦傳到犯人為準，不是犯人自己說謊那一刻。犯人對自己說過的話不算收到八卦。
+- 避開有時限：`CULPRIT_AVOID_MINUTES = 60` 遊戲分鐘，之後恢復正常行程。避開期間犯人仍會依行程回自己家與工作地點，所以玩家一定追得到。
+- 玩家與犯人同地且犯人沒在走路時，`present_evidence` 一律可送。避開不影響對質。
+
+避開生效時，下一次移動由伺服器改寫目的地：玩家在的地點不能當 `stay` 或 `talk_to` 的結果。模型可以說要離開，但不准它決定要不要逃。
 
 ### 評分
 
@@ -560,8 +580,9 @@ HUD 把 `npc_unavailable` 顯示成「他好像沒空理你。」不呼叫模型
 
 | 名稱 | 預設 | 行為 |
 | --- | --- | --- |
-| `LLM_QUEUE_MAX` | `8` | 不含正在跑的那一則。滿了之後，新的居民工作直接丟掉 |
-| `DIALOGUE_TIMEOUT_SECONDS` | `20` | 玩家這一則的上限。逾時不重試 |
+| `LLM_QUEUE_MAX` | `8` | 不含正在跑的那一則。居民工作進來時若已滿，直接丟掉，變成安靜的 stay。玩家工作進來時若已滿，丟掉最舊的、還沒開始的居民工作來騰位子；被丟掉的同樣變成安靜的 stay。`intent_result.reason = busy` 只在佇列裡全部是玩家工作、騰不出位子時才回 |
+| `DIALOGUE_TIMEOUT_SECONDS` | `20` | 從模型呼叫真正開始才算，不含排隊。逾時不重試 |
+| `DIALOGUE_MAX_QUEUE_WAIT_SECONDS` | `25` | 在佇列裡等超過這個秒數還沒開始，直接回 fallback，`reason = llm_timeout`，不再進模型 |
 | `LLM_BACKGROUND_TIMEOUT_SECONDS` | `20` | 場上有玩家時，居民 decision / plan / review 的上限。無人在線時仍用現有的 `DEFAULT_LLM_TIMEOUT_SECONDS`（60） |
 | `DIALOGUE_PARSE_RETRIES` | `1` | 只用於 JSON 解析失敗，不用於逾時 |
 | `DIALOGUE_FALLBACK_REPLY` | `……我現在不太想說。` | 逾時與解析失敗都用這句 |
@@ -578,9 +599,9 @@ HUD 把 `npc_unavailable` 顯示成「他好像沒空理你。」不呼叫模型
 | 正常 | `null` | 模型的 `reply`，並套用允許清單 |
 | 逾時 | `llm_timeout` | fallback 句，`revealed_fact_ids` 為空 |
 | 解析失敗且重試仍失敗 | `llm_parse` | 同一句 fallback，id 為空 |
-| 佇列已滿、插不進玩家工作 | 不進模型。`intent_result.reason` 為 `busy` | HUD：「{名字}這會兒騰不出來。」 |
+| 佇列裡全是玩家工作、插不進 | 不進模型。`intent_result.reason` 為 `busy` | HUD：「{名字}這會兒騰不出來。」 |
 
-等待期間，對話框顯示「{名字}想了想」並輪播省略號（`·`、`··`、`···`，約每 0.4 秒一拍）。這行不是居民的回覆，沒有「對你說」。結果回來就換成回覆或 fallback。
+等待期間，對話框顯示「{名字}想了想」並輪播省略號（`·`、`··`、`···`，約每 0.4 秒一拍）。這段動畫涵蓋排隊與模型呼叫兩段。這行不是居民的回覆，沒有「對你說」。結果回來就換成回覆或 fallback。
 
 居民工作被丟掉或逾時時，沿用現在的做法：decision 變成安靜的 `stay`，plan / review 留空，不讓 `tick()` 停住。
 
@@ -623,7 +644,7 @@ TALK_BLOCK_SUBSTRINGS = (
 
 ## 6. LLM 成本與節流
 
-一局以發布後的 25 真實分鐘計（`REAL_SECONDS_PER_GAME_MINUTE = 2.5`，600 遊戲分鐘）。居民 3 人，玩家 N 人。模型是 `qwen3:14b`，單工。
+一局以發布後的 25 真實分鐘計（`GAME_MINUTES_PER_REAL_SECOND = 0.4`，600 遊戲分鐘 ÷ 0.4 = 1500 真實秒）。居民 3 人，玩家 N 人。模型是 `qwen3:14b`，單工。
 
 下面的秒數不是這台主機量過的。假設預填 80 token/秒、生成 25 token/秒，中文約 1 字 1 token。單則秒數 = 輸入 / 80 + 輸出 / 25。
 
@@ -657,9 +678,9 @@ TALK_BLOCK_SUBSTRINGS = (
 - N=1、打滿 40 句：969 秒，16.2 分鐘
 - N=2、打滿 40 句：1511 秒，25.2 分鐘
 
-採用節流後的數字當這一局的排隊時間：一位玩家、預期對話，約 11.6 分鐘，低於 25 分鐘。三人同時各說約 20 句，約 20.7 分鐘，仍低於一局。第四人起，或兩人把 40 句上限打滿，就會超過，這時 `LLM_QUEUE_MAX` 把居民工作丟掉，玩家等待仍被 `DIALOGUE_TIMEOUT_SECONDS` 與「不中斷正在跑的那一則」卡住，最壞大約是 20 秒背景 + 20 秒自己的對話。
+採用節流後的數字當這一局的排隊時間：一位玩家、預期對話，約 11.6 分鐘，低於 25 分鐘。三人同時各說約 20 句，約 20.7 分鐘，仍低於一局。第四人起，或兩人把 40 句上限打滿，就會超過，這時玩家工作會擠掉還沒開始的居民工作。玩家自己的等待仍被「不中斷正在跑的那一則」卡住，最壞大約是 20 秒背景加上自己的 20 秒對話。在佇列裡等超過 25 秒還沒開始，則直接 fallback，不再進模型。
 
-PR1–PR3 的預設倍率是 1.0，同一段遊戲時間只有 10 真實分鐘。節流後的 11.6 分鐘仍比這 10 分鐘長。測對話時把 `REAL_SECONDS_PER_GAME_MINUTE` 設成 `2.5`，或接受佇列滿了就丟掉居民決策。
+PR1–PR3 的預設是 1.0，同一段遊戲時間只有 10 真實分鐘。節流後的 11.6 分鐘仍比這 10 分鐘長。測對話時把 `GAME_MINUTES_PER_REAL_SECOND` 設成 `0.4`（時鐘變慢，人仍每真實秒走一步），或接受佇列滿了就丟掉居民決策。
 
 ## 7. 前 3 分鐘
 
@@ -686,7 +707,7 @@ PR1–PR3 的預設倍率是 1.0，同一段遊戲時間只有 10 真實分鐘�
 
 ### PR1 對話
 
-自由輸入、伺服器發給的 token、深色對話框、正在說話的圖示、`produced` 不進日誌、`REAL_SECONDS_PER_GAME_MINUTE`。允許清單是空的：只聊人設、地點與需求，`revealed_fact_ids` 必須是空的。`rules` 模式回 `npc_unavailable`。
+自由輸入、伺服器發給的 token、深色對話框、正在說話的圖示、`produced` 不進日誌、`GAME_MINUTES_PER_REAL_SECOND`。允許清單是空的：只聊人設、地點與需求，`revealed_fact_ids` 必須是空的。`rules` 模式回 `npc_unavailable`。
 
 驗收：同地且對方站著才能送；走路與倒下被拒絕；超長、太頻繁、過濾命中都不呼叫模型；壞 JSON 變成 fallback 且 `reason` 為 `llm_parse`；逾時不重試；等待中的第二句取代還沒開始的那則；兩枚 token 互看不到回覆正文，但看得到「正在和某人說話」；`tick()` 在模型拖延時仍前進。
 
@@ -698,7 +719,7 @@ PR1–PR3 的預設倍率是 1.0，同一段遊戲時間只有 10 真實分鐘�
 - 事件日誌沒有回覆正文，在公園連按澆水壺也不會被「做出木材」填滿。
 - 重新整理後，同一瀏覽器還看得到剛才的對話；把 `localStorage` 的 token 改亂，會變成空的新進度。
 - `rules` 模式下送出一句，畫面是「他好像沒空理你。」遊戲沒有停住。
-- 把 `REAL_SECONDS_PER_GAME_MINUTE` 設成 `2.5` 後，時鐘明顯比預設慢。
+- 把 `GAME_MINUTES_PER_REAL_SECOND` 設成 `0.4` 後，時鐘明顯比預設慢，角色（含玩家自己）仍每真實秒走一步。
 
 ### PR2 案件、信任、筆記
 
@@ -715,7 +736,7 @@ PR1–PR3 的預設倍率是 1.0，同一段遊戲時間只有 10 真實分鐘�
 
 ### PR3 對質與八卦
 
-出示筆記。矛盾成立就解鎖 `truth_id`；模型不改口也寫入 `crack_text`。八卦只傳標籤。犯人在你問過敏感標籤之後會走開。
+出示筆記。矛盾成立就解鎖 `truth_id`；模型不改口也寫入 `crack_text`。八卦只傳標籤。犯人避開的三條規則見第 4 節。
 
 驗收：沒有那條筆記就無法出示；出示不相關的筆記不加事實；兩名居民碰面後，第二個人的提示裡有「有人問過這類事」，但沒有第一個人才知道的正文。
 
@@ -727,7 +748,7 @@ PR1–PR3 的預設倍率是 1.0，同一段遊戲時間只有 10 真實分鐘�
 
 ### PR4 大會、揭曉、下一局
 
-把 `REAL_SECONDS_PER_GAME_MINUTE` 的程式預設改成 `2.5`。18:00 打開指認。分數按第 4 節。揭曉用案件原文，0 次模型。確認後下一天 08:00，私人進度清空，人還在線上。部署說明寫明：這次上線後，主機依第 5.1 節把正式站切到 `llm`。
+把 `GAME_MINUTES_PER_REAL_SECOND` 的程式預設改成 `0.4`。18:00 打開指認。分數按第 4 節。揭曉用案件原文，0 次模型。確認後下一天 08:00，私人進度清空，人還在線上。部署說明寫明：這次上線後，主機依第 5.1 節把正式站切到 `llm`。
 
 驗收：指認不呼叫模型；指錯仍揭曉正確犯人。
 

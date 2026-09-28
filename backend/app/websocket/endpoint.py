@@ -7,7 +7,13 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from app import config, state
-from app.models.schemas import Intent, IntentResultMessage, WorldSnapshotMessage
+from app.models.schemas import (
+    Intent,
+    IntentResultMessage,
+    SessionMessage,
+    WorldSnapshotMessage,
+)
+from app.simulation.player_talk import open_token
 from app.websocket.broadcast import broadcast_changes
 from app.websocket.manager import manager
 
@@ -38,7 +44,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     player_id = await manager.connect(websocket)
     recent: deque[float] = deque()
     try:
+        token: str | None = None
+        old_id: str | None = None
         if player_id is not None:
+            token = open_token(state.world, websocket.query_params.get("player_token"))
+            previous = manager.claim_token(websocket, token)
+            if previous is not None:
+                old_id = manager.players.pop(previous, None)
+                manager.retired.add(previous)
+                if old_id is not None:
+                    state.world.remove_player(old_id)
+            state.world.player_tokens[player_id] = token
+            await websocket.send_json(SessionMessage(player_token=token).model_dump())
             entered = state.world.add_player(player_id)
         else:
             entered = None
@@ -46,8 +63,13 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         snapshot.you = player_id
         message = WorldSnapshotMessage(data=snapshot)
         await websocket.send_json(message.model_dump(exclude_none=True))
-        if entered is not None:
-            await broadcast_changes([], [entered], exclude=websocket)
+        if entered is not None or old_id is not None:
+            await broadcast_changes(
+                [],
+                [entered] if entered is not None else [],
+                removed=[old_id] if old_id is not None else None,
+                exclude=websocket,
+            )
         while True:
             text = await websocket.receive_text()
             await _handle_text(websocket, player_id, text, recent)
@@ -102,7 +124,11 @@ async def _handle_text(
     except ValidationError:
         await websocket.send_json(_result(client_seq, False, "bad_intent"))
         return
-    outcome = state.world.apply_intent(player_id, intent)
+    outcome = state.world.apply_intent(player_id, intent, client_seq)
+    if outcome.superseded_seq is not None:
+        await websocket.send_json(
+            _result(outcome.superseded_seq, False, "superseded")
+        )
     await websocket.send_json(_result(client_seq, outcome.ok, outcome.reason))
     if outcome.ok and (outcome.events or outcome.changed_agents):
         await broadcast_changes(outcome.events, outcome.changed_agents)
