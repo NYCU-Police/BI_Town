@@ -22,21 +22,26 @@ SIMULATION_LOOP_ENABLED = True
 def game_minutes_per_real_second() -> float:
     """Clock speed. Movement stays on SIMULATION_TICK_SECONDS.
 
-    PR4 changes the fallback from 1.0 to 0.4. A positive env value wins.
+    Unset, blank, or non-positive values use 0.4. A positive env value wins.
     """
     raw = os.environ.get("GAME_MINUTES_PER_REAL_SECOND", "").strip()
     if raw == "":
-        return 1.0
+        return 0.4
     try:
         value = float(raw)
     except ValueError:
-        return 1.0
+        return 0.4
     if value <= 0:
-        return 1.0
+        return 0.4
     return value
 
 INITIAL_DAY = 1
 INITIAL_TIME = "08:00"
+ASSEMBLY_TIME = "18:00"
+ACCUSE_WINDOW_SECONDS = 90
+REVEAL_HOLD_SECONDS = 45
+SCORE_CULPRIT = 60
+SCORE_MOTIVE = 40
 
 AGENT_SPEED_PER_TICK = 50.0
 ARRIVAL_DISTANCE_THRESHOLD = 10.0

@@ -130,6 +130,15 @@ class World:
         self.heard_tags: dict[str, dict[str, dict[str, set[str]]]] = {}
         self.avoid_until: dict[str, dict[str, int]] = {}
         self.gossip_wait: dict[tuple[str, str], int] = {}
+        self.phase = "play"
+        self.assembly_deadline: float | None = None
+        self.accusations: dict[str, tuple[str, str]] = {}
+        self.scores: dict[str, int] = {}
+        self.ready_tokens: set[str] = set()
+        self.reveal_body = ""
+        self.round_notices: list[dict[str, object]] = []
+        self.pending_changed: set[str] = set()
+        self.skip_clock = False
         self._install_case(self.day, reset_notes=False)
 
     def add_event(self, event: WorldEvent) -> None:
@@ -149,12 +158,23 @@ class World:
         )
 
     def snapshot(self) -> WorldSnapshot:
+        from app.simulation.assembly import (
+            motive_options,
+            remaining_seconds,
+            resident_choices,
+        )
+
         return WorldSnapshot(
             day=self.day,
             time=self.time,
             agents=self.agent_list(),
             events=self.recent_events(),
             notice=self.notice_text(),
+            phase=self.phase,  # type: ignore[arg-type]
+            motives=motive_options(self.case),
+            residents=resident_choices(self),
+            reveal_text=self.reveal_body if self.phase == "reveal" else "",
+            remaining_seconds=remaining_seconds(self.assembly_deadline),
         )
 
     def add_player(self, player_id: str) -> Agent:
@@ -204,22 +224,33 @@ class World:
         return ended
 
     def tick(self) -> TickResult:
+        from app.simulation.assembly import poll_round, take_changed
+
         self._sync_players_present()
+        poll_round(self)
+        extra = take_changed(self)
         self._minute_credit += game_minutes_per_real_second()
         if self._minute_credit < 1.0 - 1e-9:
-            return self._tick_motion()
+            return self._with_extra(self._tick_motion(), extra)
         results: list[TickResult] = []
         while self._minute_credit >= 1.0 - 1e-9:
             self._minute_credit -= 1.0
             results.append(self._tick_minute())
         if len(results) == 1:
-            return results[0]
+            return self._with_extra(results[0], extra)
         events: list[WorldEvent] = []
-        changed: set[str] = set()
+        changed: set[str] = set(extra)
         for result in results:
             events.extend(result.events)
             changed.update(agent.id for agent in result.changed_agents)
         return TickResult(events=events, changed_agents=self._pack(changed))
+
+    def _with_extra(self, result: TickResult, extra: set[str]) -> TickResult:
+        if not extra:
+            return result
+        changed = {agent.id for agent in result.changed_agents}
+        changed.update(extra)
+        return TickResult(events=result.events, changed_agents=self._pack(changed))
 
     def _tick_minute(self) -> TickResult:
         from app.simulation.gossip import tick_gossip
@@ -293,7 +324,38 @@ class World:
             from app.simulation.player_talk import submit_talk
 
             return submit_talk(self, player_id, intent, client_seq)
+        if action == "accuse":
+            return self._intent_accuse(player_id, intent)
+        if action == "next_round":
+            return self._intent_next_round(player_id)
         return self._fail("bad_intent")
+
+    def _intent_accuse(self, player_id: str, intent: Intent) -> IntentResult:
+        from app.simulation.assembly import accuse
+
+        token = self.player_tokens.get(player_id)
+        if token is None:
+            return self._fail("no_player")
+        reason = accuse(
+            self,
+            token,
+            intent.culprit_id or "",
+            intent.motive_id or "",
+        )
+        if reason is not None:
+            return self._fail(reason)
+        return self._ok([], set())
+
+    def _intent_next_round(self, player_id: str) -> IntentResult:
+        from app.simulation.assembly import note_ready, take_changed
+
+        token = self.player_tokens.get(player_id)
+        if token is None:
+            return self._fail("no_player")
+        reason = note_ready(self, token)
+        if reason is not None:
+            return self._fail(reason)
+        return self._ok([], take_changed(self))
 
     def _tick_rules(self) -> TickResult:
         action_time = self.time
@@ -338,13 +400,20 @@ class World:
             if after != before:
                 changed_ids.add(agent.id)
 
-        for agent_id in self.agents:
-            self._tick_body_needs(agent_id)
+        if not self.skip_clock:
+            for agent_id in self.agents:
+                self._tick_body_needs(agent_id)
         self._roll_clock()
+        changed_ids.update(self._absorb_pending())
         return TickResult(
             events=new_events,
             changed_agents=self._pack(changed_ids),
         )
+
+    def _absorb_pending(self) -> set[str]:
+        from app.simulation.assembly import take_changed
+
+        return take_changed(self)
 
     def _tick_llm(self) -> TickResult:
         action_time = self.time
@@ -383,19 +452,37 @@ class World:
                 changed_ids.add(agent.id)
             self._tick_body_needs(agent.id)
         self._roll_clock()
+        changed_ids.update(self._absorb_pending())
         return TickResult(
             events=new_events,
             changed_agents=self._pack(changed_ids),
         )
 
     def _roll_clock(self) -> None:
-        previous = self.day
+        from app import config as app_config
+        from app.simulation.assembly import open_assembly
+
+        if self.phase != "play" or self.skip_clock:
+            self.skip_clock = False
+            return
+        previous_day = self.day
+        previous_time = self.time
         self.day, self.time = advance_clock(
             self.day,
             self.time,
             GAME_MINUTES_PER_TICK,
         )
-        if self.day != previous:
+        crossed = (
+            self.brain_mode == "llm"
+            and previous_day == self.day
+            and previous_time < app_config.ASSEMBLY_TIME
+            and self.time >= app_config.ASSEMBLY_TIME
+        )
+        if crossed:
+            self.time = app_config.ASSEMBLY_TIME
+            open_assembly(self)
+            return
+        if self.day != previous_day:
             self._install_case(self.day, reset_notes=True)
 
     def _install_case(self, day: int, *, reset_notes: bool) -> None:

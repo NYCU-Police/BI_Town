@@ -1021,6 +1021,18 @@ class LlmSession:
                 decision = decision.model_copy(
                     update={"action": action, "target": target}
                 )
+        phase = getattr(self.talk_world, "phase", "play")
+        if phase != "play":
+            from app.simulation.assembly import plaza_decision
+
+            action, target = plaza_decision(
+                actor.location,
+                actor.state,
+                actor.collapsed,
+            )
+            decision = decision.model_copy(
+                update={"action": action, "target": target, "say": "", "thought": ""}
+            )
         self._observe(actor)
         actor.last_thought = decision.thought.strip()
         thought = actor.last_thought
@@ -1249,6 +1261,8 @@ class LlmSession:
         return changed
 
     def _tick_needs(self) -> None:
+        if getattr(self.talk_world, "skip_clock", False):
+            return
         for resident in self.residents:
             asleep = resident.state == "sleeping" or (
                 resident.state == "doing"

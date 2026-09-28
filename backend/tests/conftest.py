@@ -3,6 +3,7 @@ import os
 import pytest
 
 os.environ["BRAIN_MODE"] = "rules"
+os.environ["GAME_MINUTES_PER_REAL_SECOND"] = "1.0"
 
 import app.config as config  # noqa: E402
 from app.state import reset_world  # noqa: E402

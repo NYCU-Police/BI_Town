@@ -150,6 +150,16 @@ class Dossier:
             return True
         return self.round_counts.get(resident_id, 0) >= TALK_MAX_PER_ROUND
 
+    def clear_round(self) -> None:
+        self.memory.clear()
+        self.talk_marks.clear()
+        self.round_counts.clear()
+        self.last_talk_at.clear()
+        self.trust.clear()
+        self.talk_trust_points.clear()
+        self.notes.clear()
+        self.cracks.clear()
+
     def mark_sent(self, resident_id: str, now: float) -> None:
         self.last_talk_at[resident_id] = now
         self.talk_marks.setdefault(resident_id, []).append(now)
@@ -336,6 +346,10 @@ def submit_talk(
     resident_view = world.agents.get(target.id)
     if resident is None or player is None or resident_view is None:
         return _fail("unknown_agent")
+    from app.simulation.assembly import arrived_for_assembly
+
+    if arrived_for_assembly(world, target.id):
+        return _fail("assembly")
     if resident.state == "sleeping" or not world._same_place(player, resident_view):
         return _fail("not_here")
     if resident.collapsed or world._collapsed(target.id):

@@ -14,6 +14,24 @@ logger = logging.getLogger(__name__)
 async def broadcast_tick(result: TickResult) -> None:
     await broadcast_changes(result.events, result.changed_agents)
     await push_notebooks()
+    await push_round_notices()
+
+
+async def push_round_notices() -> None:
+    from app.simulation.assembly import take_notices
+    from app.websocket.manager import manager
+
+    for notice in take_notices(state.world):
+        if notice.get("type") != "reveal":
+            await manager.broadcast(notice)
+            continue
+        for token, socket in list(manager.socket_by_token.items()):
+            payload = dict(notice)
+            payload["score"] = int(state.world.scores.get(token, 0))
+            try:
+                await socket.send_json(payload)
+            except Exception:
+                logger.exception("failed to deliver reveal")
 
 
 async def simulation_loop() -> None:

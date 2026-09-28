@@ -37,6 +37,10 @@ func _ready() -> void:
 		_hud.note_presented.connect(_on_present)
 	if _hud.has_signal("dialogue_target_changed"):
 		_hud.dialogue_target_changed.connect(_refresh_confront_target)
+	if _hud.has_signal("accuse_submitted"):
+		_hud.accuse_submitted.connect(_on_accuse)
+	if _hud.has_signal("next_round_submitted"):
+		_hud.next_round_submitted.connect(_on_next_round)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -118,6 +122,8 @@ func _on_intent(client_seq: int, ok: bool, reason: String) -> void:
 		return
 	if ok:
 		_hud.show_intent_reason("")
+		if _last_action == "accuse" and _hud.has_method("mark_accused"):
+			_hud.mark_accused()
 		return
 	_hud.show_intent_reason(_reason_text(reason))
 
@@ -151,6 +157,16 @@ func _reason_text(reason: String) -> String:
 			return "他好像沒空理你。"
 		"not_in_notes":
 			return "筆記裡沒有這條"
+		"assembly":
+			return "現在是鎮民大會。"
+		"already_accused":
+			return "你已經指認過了。"
+		"bad_culprit":
+			return "沒有這個人"
+		"bad_motive":
+			return "沒有這個動機"
+		"not_now":
+			return "現在不能這樣做"
 		"too_long":
 			return "這句話太長了。"
 		"talk_limited":
@@ -376,6 +392,18 @@ func _refresh_confront_target() -> void:
 		_hud.set_confront_target(speaker)
 	else:
 		_hud.set_confront_target("")
+
+
+func _on_accuse(culprit_id: String, motive_id: String) -> void:
+	_send_intent({
+		"action": "accuse",
+		"culprit_id": culprit_id,
+		"motive_id": motive_id,
+	})
+
+
+func _on_next_round() -> void:
+	_send_intent({"action": "next_round"})
 
 
 func _on_present(fact_id: String) -> void:

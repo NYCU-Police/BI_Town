@@ -24,6 +24,8 @@ IntentAction = Literal[
     "use_tool",
     "talk",
     "present_evidence",
+    "accuse",
+    "next_round",
 ]
 TargetType = Literal["agent", "poi"]
 
@@ -102,6 +104,13 @@ class WorldSnapshot(BaseModel):
     notice: str = ""
     notes: list[str] = Field(default_factory=list)
     note_ids: list[str] = Field(default_factory=list)
+    phase: Literal["play", "assembly", "reveal"] = "play"
+    motives: list[dict[str, str]] = Field(default_factory=list)
+    residents: list[dict[str, str]] = Field(default_factory=list)
+    accused: bool = False
+    reveal_text: str = ""
+    score: int | None = None
+    remaining_seconds: int = 0
 
 
 class WorldSnapshotMessage(BaseModel):
@@ -138,6 +147,8 @@ class Intent(BaseModel):
     item: str | None = None
     text: str | None = None
     fact_id: str | None = None
+    culprit_id: str | None = None
+    motive_id: str | None = None
 
 
 class IntentResultMessage(BaseModel):
