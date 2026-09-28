@@ -29,12 +29,13 @@ def record_returned_tags(
     tags = _tags_of(getattr(world, "case", None), fact_ids)
     if not tags or not token:
         return
-    asked = _asked(world)
-    asked.setdefault(resident_id, {}).setdefault(token, set()).update(tags)
+    rows = _asked(world).setdefault(resident_id, {}).setdefault(token, {})
+    for tag in tags:
+        rows.setdefault(tag, set()).add(resident_id)
 
 
 def tags_for(world: object, resident_id: str, token: str) -> list[str]:
-    found = _heard(world).get(resident_id, {}).get(token, set())
+    found = _heard(world).get(resident_id, {}).get(token, {})
     return sorted(found)
 
 
@@ -104,7 +105,7 @@ def rewrite_action(
 def _scare_from(
     world: object,
     receiver: str,
-    incoming: dict[str, set[str]],
+    incoming: dict[str, dict[str, set[str]]],
 ) -> None:
     case = getattr(world, "case", None)
     if not isinstance(case, dict) or case.get("culprit_id") != receiver:
@@ -115,13 +116,21 @@ def _scare_from(
     now = absolute_minute(getattr(world, "day", 1), getattr(world, "time", "08:00"))
     until = now + app_config.CULPRIT_AVOID_MINUTES
     avoid = _avoid(world).setdefault(receiver, {})
-    for token, tags in incoming.items():
-        if tags & sensitive:
+    for token, origins in incoming.items():
+        foreign = {
+            tag for tag, who in origins.items() if who - {receiver}
+        }
+        if foreign & sensitive:
             avoid[token] = until
 
 
-def _snapshot(rows: dict[str, set[str]]) -> dict[str, set[str]]:
-    return {token: set(tags) for token, tags in rows.items()}
+def _snapshot(
+    rows: dict[str, dict[str, set[str]]],
+) -> dict[str, dict[str, set[str]]]:
+    return {
+        token: {tag: set(who) for tag, who in origins.items()}
+        for token, origins in rows.items()
+    }
 
 
 def _sensitive_tags(case: dict[str, object], resident_id: str) -> set[str]:
@@ -201,41 +210,46 @@ def _idle_by_place(world: object) -> dict[str, list[str]]:
 
 
 def _copy(
-    asked: dict[str, dict[str, set[str]]],
+    asked: dict[str, dict[str, dict[str, set[str]]]],
     source: str,
     dest: str,
 ) -> None:
-    for token, tags in asked.get(source, {}).items():
-        if not tags:
+    for token, origins in asked.get(source, {}).items():
+        if not origins:
             continue
-        asked.setdefault(dest, {}).setdefault(token, set()).update(tags)
+        dest_rows = asked.setdefault(dest, {}).setdefault(token, {})
+        for tag, who in origins.items():
+            dest_rows.setdefault(tag, set()).update(who)
 
 
 def _merge_heard(
     world: object,
     receiver: str,
-    incoming: dict[str, set[str]],
+    incoming: dict[str, dict[str, set[str]]],
 ) -> None:
     heard = _heard(world)
-    for token, tags in incoming.items():
-        if tags:
-            heard.setdefault(receiver, {}).setdefault(token, set()).update(tags)
+    for token, origins in incoming.items():
+        if not origins:
+            continue
+        dest_rows = heard.setdefault(receiver, {}).setdefault(token, {})
+        for tag, who in origins.items():
+            dest_rows.setdefault(tag, set()).update(who)
 
 
-def _heard(world: object) -> dict[str, dict[str, set[str]]]:
+def _heard(world: object) -> dict[str, dict[str, dict[str, set[str]]]]:
     found = getattr(world, "heard_tags", None)
     if isinstance(found, dict):
         return found
-    fresh: dict[str, dict[str, set[str]]] = {}
+    fresh: dict[str, dict[str, dict[str, set[str]]]] = {}
     world.heard_tags = fresh  # type: ignore[attr-defined]
     return fresh
 
 
-def _asked(world: object) -> dict[str, dict[str, set[str]]]:
+def _asked(world: object) -> dict[str, dict[str, dict[str, set[str]]]]:
     found = getattr(world, "asked_tags", None)
     if isinstance(found, dict):
         return found
-    fresh: dict[str, dict[str, set[str]]] = {}
+    fresh: dict[str, dict[str, dict[str, set[str]]]] = {}
     world.asked_tags = fresh  # type: ignore[attr-defined]
     return fresh
 

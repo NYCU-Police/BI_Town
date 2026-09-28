@@ -14,7 +14,6 @@ const _NAMES := {
 var _player_id := ""
 var _location := ""
 var _state := "idle"
-var _front_id := ""
 var _tools: Array = []
 var _items: Array = []
 var _selected := 0
@@ -36,6 +35,8 @@ func _ready() -> void:
 		_hud.talk_submitted.connect(_on_talk_submitted)
 	if _hud.has_signal("note_presented"):
 		_hud.note_presented.connect(_on_present)
+	if _hud.has_signal("dialogue_target_changed"):
+		_hud.dialogue_target_changed.connect(_refresh_confront_target)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -366,34 +367,32 @@ func _send_intent(intent: Dictionary) -> void:
 func _refresh_confront_target() -> void:
 	if not _hud.has_method("set_confront_target"):
 		return
-	if _state == "walking" or _location.is_empty():
-		_front_id = ""
+	var speaker := ""
+	if _hud.has_method("dialogue_speaker"):
+		speaker = str(_hud.dialogue_speaker())
+	if speaker.is_empty() or _state == "walking" or _location.is_empty():
 		_hud.set_confront_target("")
 		return
-	for agent_id in _others:
-		if str(agent_id) == _player_id:
-			continue
-		var info: Dictionary = _others[agent_id]
-		if str(info.get("location", "")) != _location:
-			continue
-		if str(info.get("state", "")) == "walking":
-			continue
-		if bool(info.get("collapsed", false)):
-			continue
-		_front_id = str(agent_id)
-		_hud.set_confront_target(_front_id)
-		return
-	_front_id = ""
-	_hud.set_confront_target("")
+	var info: Dictionary = _others.get(speaker, {})
+	var here := str(info.get("location", "")) == _location
+	var standing := str(info.get("state", "")) != "walking"
+	var awake := not bool(info.get("collapsed", false))
+	if here and standing and awake:
+		_hud.set_confront_target(speaker)
+	else:
+		_hud.set_confront_target("")
 
 
 func _on_present(fact_id: String) -> void:
-	if _front_id.is_empty():
+	var speaker := ""
+	if _hud.has_method("dialogue_speaker"):
+		speaker = str(_hud.dialogue_speaker())
+	if speaker.is_empty():
 		_show_local_reason("not_here")
 		return
 	_send_intent({
 		"action": "present_evidence",
-		"target": {"type": "agent", "id": _front_id},
+		"target": {"type": "agent", "id": speaker},
 		"fact_id": fact_id,
 	})
 

@@ -2,6 +2,7 @@ extends CanvasLayer
 
 signal talk_submitted(text: String)
 signal note_presented(fact_id: String)
+signal dialogue_target_changed
 
 const _MATCH_COLOR := Color(0.65, 0.67, 0.64)
 const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
@@ -41,6 +42,7 @@ var _note_box: VBoxContainer
 var _note_texts: PackedStringArray = PackedStringArray()
 var _note_fact_ids: PackedStringArray = PackedStringArray()
 var _confront_target := ""
+var _dialogue_speaker := ""
 var _waiting := false
 var _wait_name := ""
 var _dot_phase := 0
@@ -542,6 +544,10 @@ func note_count() -> int:
 	return _note_texts.size()
 
 
+func dialogue_speaker() -> String:
+	return _dialogue_speaker
+
+
 func set_confront_target(agent_id: String) -> void:
 	if _confront_target == agent_id:
 		return
@@ -709,8 +715,10 @@ func _process(delta: float) -> void:
 
 func focus_resident(agent_id: String, agent_name: String) -> void:
 	_agent_names[agent_id] = agent_name
+	_dialogue_speaker = agent_id
 	_dialogue_line.placeholder_text = "跟%s說…" % agent_name
 	_dialogue_line.grab_focus()
+	dialogue_target_changed.emit()
 
 
 func note_player_line(text: String) -> void:
@@ -740,6 +748,7 @@ func show_private_reply(speaker_id: String, reply: String) -> void:
 
 func _restore_dialogue(history: Variant) -> void:
 	_talk_lines = PackedStringArray()
+	var bound := ""
 	if typeof(history) == TYPE_ARRAY:
 		for turn in history:
 			if typeof(turn) != TYPE_DICTIONARY:
@@ -749,9 +758,13 @@ func _restore_dialogue(history: Variant) -> void:
 				_talk_lines.append("你：%s" % reply)
 			else:
 				var speaker := str(turn.get("speaker_id", ""))
+				if not speaker.is_empty():
+					bound = speaker
 				var agent_name := str(_agent_names.get(speaker, speaker))
 				_talk_lines.append("%s對你說：%s" % [agent_name, reply])
+	_dialogue_speaker = bound
 	_refresh_dialogue()
+	dialogue_target_changed.emit()
 
 
 func _refresh_dialogue() -> void:

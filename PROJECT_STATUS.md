@@ -116,7 +116,7 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | `scripts/game_audio.gd` | 第一次點擊後才播放。環境音樂、點擊、撿起、吃、給予。音量偏低，可靜音。 |
 | `assets/fonts/` | Fusion Pixel 12px（OFL）。字級 12 與 24，nearest。 |
 | `scripts/hud.gd` | 時鐘、連線、人數、事件文字、需求、快捷欄與筆記。快捷欄每格有編號、圖示與數量，數量在格子右下角，選中格有外框。底部操作說明有半透明深色底。點角色後左上角顯示名字與 hunger/energy/social，低於 30 標紅。事件句子依 event type 模板生成。時鐘只在 snapshot 與 agent_update 更新。筆記每條可出示。 |
-| `scripts/player_input.gd` | 點角色查看需求，點 POI 移動。1–3 使用工具，4 使用目前選中物品，E 撿麵包，G 給予，Q 切換物品，N 開關筆記。面前有居民時才送出出示。失敗原因依 `intent_result.reason` 顯示具體中文。 |
+| `scripts/player_input.gd` | 點角色查看需求，點 POI 移動。1–3 使用工具，4 使用目前選中物品，E 撿麵包，G 給予，Q 切換物品，N 開關筆記。出示只送給對話框綁定的那位居民，而且對方要在面前。失敗原因依 `intent_result.reason` 顯示具體中文。 |
 | `scripts/event_log.gd` | 事件日誌，最多 20 行。 |
 
 `game/build/` 與 `.godot/` 不進 git。

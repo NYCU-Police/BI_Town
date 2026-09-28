@@ -126,8 +126,8 @@ class World:
             self._sent_needs[agent_id] = self._rounded(agent_id)
         self.case: dict[str, object] = {}
         self.notebook_dirty = False
-        self.asked_tags: dict[str, dict[str, set[str]]] = {}
-        self.heard_tags: dict[str, dict[str, set[str]]] = {}
+        self.asked_tags: dict[str, dict[str, dict[str, set[str]]]] = {}
+        self.heard_tags: dict[str, dict[str, dict[str, set[str]]]] = {}
         self.avoid_until: dict[str, dict[str, int]] = {}
         self.gossip_wait: dict[tuple[str, str], int] = {}
         self._install_case(self.day, reset_notes=False)

@@ -138,6 +138,19 @@ def test_gossip_copies_tags_not_fact_text(monkeypatch: pytest.MonkeyPatch) -> No
     assert is_avoiding(world, "alex", token) is True
 
 
+def test_bounced_own_tag_does_not_scare_until_someone_else_sends_it() -> None:
+    world, token = _llm(lambda _messages, _schema: _reply([]))
+    record_returned_tags(world, "alex", token, ["alex_was_home"])
+    from app.simulation.gossip import spread_tags
+
+    spread_tags(world, "alex", "mina")
+    spread_tags(world, "mina", "alex")
+    assert is_avoiding(world, "alex", token) is False
+    record_returned_tags(world, "rin", token, ["rin_saw_alex"])
+    spread_tags(world, "rin", "alex")
+    assert is_avoiding(world, "alex", token) is True
+
+
 def test_own_sensitive_tag_does_not_start_avoidance() -> None:
     world, token = _llm(lambda _messages, _schema: _reply([]))
     record_returned_tags(world, "alex", token, ["alex_was_home"])
