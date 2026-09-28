@@ -20,6 +20,11 @@ const TAIL_HALF_WIDTH := 8.0
 const TAIL_HEIGHT := 10.0
 const NAME_GAP := 2.0
 const SHEET_FPS := 8.0
+## Same cutoff as HUD and backend NEED_HUNGRY. Presentation only.
+const _HUNGRY_BELOW := 30
+## Matches backend EAT_FULLNESS_RESTORE.
+const _EAT_HUNGER := 35
+const _CHAT_SECONDS := 3.0
 
 var server_position: Vector2 = Vector2.ZERO
 var visual_offset: Vector2 = Vector2.ZERO
@@ -34,6 +39,16 @@ var _facing := "down"
 var _frame_index := 0
 var _frame_clock := 0.0
 var _local_player: bool = false
+var _hop := 0.0
+var _chat_left := 0.0
+var _status_fx := ""
+var _hungry := false
+var _collapsed := false
+
+var _emote: Sprite2D
+var _held: Sprite2D
+var _dust: GPUParticles2D
+var _float_label: Label
 
 var _you_ring: Line2D
 var _you_arrow: Polygon2D
@@ -76,6 +91,40 @@ func _ready() -> void:
 	])
 	_you_arrow.visible = false
 	add_child(_you_arrow)
+	_emote = Sprite2D.new()
+	_emote.name = "Emote"
+	_emote.position = Vector2(0, -28)
+	_emote.z_index = 20
+	_emote.visible = false
+	add_child(_emote)
+	_held = Sprite2D.new()
+	_held.name = "HeldItem"
+	_held.position = Vector2(12, -2)
+	_held.z_index = 2
+	_held.visible = false
+	add_child(_held)
+	_dust = GPUParticles2D.new()
+	_dust.name = "Dust"
+	_dust.z_index = 0
+	_dust.amount = 4
+	_dust.lifetime = 0.35
+	_dust.explosiveness = 0.0
+	_dust.local_coords = true
+	_dust.emitting = false
+	_dust.visibility_rect = Rect2(-12, -8, 24, 16)
+	_dust.texture = _dust_texture()
+	_dust.process_material = _dust_material()
+	add_child(_dust)
+	_float_label = Label.new()
+	_float_label.name = "FloatText"
+	_float_label.visible = false
+	_float_label.z_index = 30
+	_float_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_float_label.add_theme_font_size_override("font_size", 12)
+	_float_label.add_theme_color_override("font_color", Color(1, 0.95, 0.8))
+	_float_label.add_theme_color_override("font_outline_color", Color(0.08, 0.06, 0.04))
+	_float_label.add_theme_constant_override("outline_size", 2)
+	add_child(_float_label)
 
 
 func server_anchor() -> Vector2:
@@ -106,6 +155,9 @@ func update_from_server(data: Dictionary, snap: bool = false) -> void:
 		_activity.visible = true
 
 	_place(snap)
+	_show_held(data)
+	_read_needs(data)
+	_refresh_status_emote()
 	if _local_player:
 		_show_you()
 
@@ -183,6 +235,7 @@ func show_speech(content: String) -> void:
 	_speech.visible = true
 	_speech_hold = SPEECH_HOLD_SECONDS
 	_speech_fade = 0.0
+	show_chat_emote()
 
 
 func _place_speech() -> void:
@@ -248,6 +301,10 @@ func _place(snap: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	if _chat_left > 0.0:
+		_chat_left -= delta
+		if _chat_left <= 0.0:
+			_refresh_status_emote()
 	if _speech.visible:
 		if _speech_hold > 0.0:
 			_speech_hold -= delta
@@ -270,8 +327,11 @@ func _process(delta: float) -> void:
 
 
 func _apply_motion(delta: float, moved: Vector2, goal: Vector2) -> void:
-	_sprite.position = Vector2.ZERO
 	_sprite.flip_h = false
+	var traveling := moved.length() > 0.25 or position.distance_to(goal) > 0.8
+	_sprite.position = Vector2(0, -_hop)
+	if _dust != null:
+		_dust.emitting = traveling
 	if not _sprite.has_meta("sheet_anims"):
 		return
 	var anims: Dictionary = _sprite.get_meta("sheet_anims")
@@ -284,7 +344,6 @@ func _apply_motion(delta: float, moved: Vector2, goal: Vector2) -> void:
 		_facing = next_facing
 		_frame_index = 0
 		_frame_clock = 0.0
-	var traveling := moved.length() > 0.25 or position.distance_to(goal) > 0.8
 	var frames: Array = anims.get(("walk_" if traveling else "idle_") + _facing, [])
 	if frames.is_empty():
 		return
@@ -305,3 +364,129 @@ func _apply_motion(delta: float, moved: Vector2, goal: Vector2) -> void:
 		row = int(cell[1])
 	_sprite.region_enabled = true
 	_sprite.region_rect = Rect2(float(column) * frame.x, float(row) * frame.y, frame.x, frame.y)
+
+
+func react(action: String, item_id: String) -> void:
+	match action:
+		"ate":
+			_hop_up()
+			_float("+%d 飽食" % _EAT_HUNGER)
+		"picked_up":
+			_hop_up()
+			_float("+%s" % _item_name(item_id))
+		"gave":
+			_hop_up()
+			_float("送出 %s" % _item_name(item_id))
+
+
+func show_chat_emote() -> void:
+	_chat_left = _CHAT_SECONDS
+	_show_fx("fx.chat")
+
+
+func _read_needs(data: Dictionary) -> void:
+	_collapsed = bool(data.get("collapsed", false))
+	_hungry = false
+	var needs: Variant = data.get("needs", {})
+	if typeof(needs) == TYPE_DICTIONARY:
+		_hungry = int(needs.get("hunger", 100)) < _HUNGRY_BELOW
+
+
+func _refresh_status_emote() -> void:
+	if _chat_left > 0.0:
+		return
+	if _collapsed:
+		_show_fx("fx.collapsed")
+	elif _hungry:
+		_show_fx("fx.hungry")
+	else:
+		_clear_fx()
+
+
+func _show_fx(content_id: String) -> void:
+	if _emote == null:
+		return
+	if _status_fx == content_id and _emote.visible:
+		return
+	_status_fx = content_id
+	VisualBinder.apply(_emote, self, content_id)
+	_emote.visible = _emote.texture != null
+
+
+func _clear_fx() -> void:
+	_status_fx = ""
+	if _emote == null:
+		return
+	_emote.visible = false
+
+
+func _show_held(data: Dictionary) -> void:
+	if _held == null:
+		return
+	var item_id := ""
+	var stacks: Variant = data.get("items", [])
+	if typeof(stacks) == TYPE_ARRAY and not stacks.is_empty():
+		var stack: Variant = stacks[0]
+		if typeof(stack) == TYPE_DICTIONARY:
+			item_id = str(stack.get("id", ""))
+	if item_id.is_empty():
+		_held.visible = false
+		return
+	VisualBinder.apply(_held, self, "item.%s" % item_id)
+	_held.visible = true
+
+
+func _hop_up() -> void:
+	var tween := create_tween()
+	tween.tween_method(_set_hop, 0.0, 4.0, 0.08)
+	tween.tween_method(_set_hop, 4.0, 0.0, 0.12)
+
+
+func _set_hop(value: float) -> void:
+	_hop = value
+
+
+func _float(text: String) -> void:
+	if _float_label == null or text.is_empty():
+		return
+	_float_label.text = text
+	_float_label.position = Vector2(-36, -46)
+	_float_label.size = Vector2(72, 16)
+	_float_label.modulate.a = 1.0
+	_float_label.visible = true
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(_float_label, "position", Vector2(-36, -68), 0.7)
+	tween.tween_property(_float_label, "modulate:a", 0.0, 0.7)
+	tween.chain().tween_callback(_float_label.hide)
+
+
+func _item_name(item_id: String) -> String:
+	match item_id:
+		"bread":
+			return "麵包"
+		"wood":
+			return "木材"
+		"watering_can":
+			return "澆水壺"
+		_:
+			return item_id
+
+
+func _dust_texture() -> Texture2D:
+	var image := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0.78, 0.72, 0.58, 0.85))
+	return ImageTexture.create_from_image(image)
+
+
+func _dust_material() -> ParticleProcessMaterial:
+	var material := ParticleProcessMaterial.new()
+	material.particle_flag_disable_z = true
+	material.direction = Vector3(0, -1, 0)
+	material.spread = 35.0
+	material.initial_velocity_min = 3.0
+	material.initial_velocity_max = 8.0
+	material.gravity = Vector3(0, 18, 0)
+	material.scale_min = 1.0
+	material.scale_max = 1.0
+	return material

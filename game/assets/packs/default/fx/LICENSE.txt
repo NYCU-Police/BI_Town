@@ -1,0 +1,6 @@
+Emotes are from the Ninja Adventure Asset Pack by Pixel-boy and AAA (CC0).
+https://pixel-boy.itch.io/ninja-adventure-asset-pack
+
+- emote19.png: uneasy mouth, used for fx.hungry
+- emote20.png: ellipsis, used for fx.chat
+- emote28.png: Zzz, used for fx.collapsed

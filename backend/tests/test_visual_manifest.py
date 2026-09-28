@@ -38,6 +38,9 @@ def test_manifest_matches_namespaced_content_ids() -> None:
             assert entry["kind"] == "spritesheet"
             assert entry["frame_size"] == [16, 16]
             assert entry["anims"] == _SHEET_ANIMS
+        elif namespace == "fx":
+            assert entry["kind"] == "sprite"
+            assert str(entry["file"]).endswith(".png")
         else:
             assert entry["kind"] == "sprite"
         assert entry["category"] == _CATEGORY[namespace]
@@ -58,6 +61,9 @@ def test_manifest_matches_namespaced_content_ids() -> None:
     player = manifest["agent.player"]
     assert str(player["placeholder_color"]).lower() not in poi_colors
     assert str(player["name_color"]).lower() not in poi_colors
+    assert manifest["fx.hungry"]["file"] == "emote19.png"
+    assert manifest["fx.collapsed"]["file"] == "emote28.png"
+    assert manifest["fx.chat"]["file"] == "emote20.png"
 
 
 def test_pack_paths_are_only_in_visual_binder() -> None:
@@ -67,6 +73,8 @@ def test_pack_paths_are_only_in_visual_binder() -> None:
             if ".godot" in path.parts or path.name in {
                 "visual_binder.gd",
                 "town_map.gd",
+                "hud.gd",
+                "game_audio.gd",
             }:
                 continue
             text = path.read_text(encoding="utf-8")

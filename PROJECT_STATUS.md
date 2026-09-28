@@ -108,7 +108,8 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | `scripts/visual_binder.gd` | 依 content id 找 `packs/user` 再 `packs/default`，都沒有就畫 placeholder。`kind: none` 不畫色塊、不警告；user pack 圖仍畫，並與角色依 Y 排序。`kind: spritesheet` 依 `frame_size` 與 `anims` 切幀。placeholder warning 以 manifest key 為準。manifest 讀不到時 `push_error`。快捷欄圖示也走這裡。 |
 | `data/visual_manifest.json` | 外觀設定（kind、category、footprint、origin、顏色；角色另有 frame_size 與 anims）。不存座標，也不存檔案路徑。9 個 POI 的 kind 是 `none`。四個 agent 是 `spritesheet`。 |
 | `scripts/town_map.gd` | 用 Ninja Adventure 的草地、石板路、建物、樹與水面鋪圖。建物落在原本地塊。沒有路燈、長椅、噴水池立繪。廣場水池是水面格。 |
-| `scripts/day_night.gd` | 依伺服器時刻用 CanvasModulate 上色，夜晚點亮窗戶。不推進時鐘。 |
+| `scripts/day_night.gd` | 依伺服器時刻用 CanvasModulate 上色，夜晚點亮窗戶與路燈。不推進時鐘。 |
+| `scripts/game_audio.gd` | 第一次點擊後才播放。環境音樂、點擊、撿起、吃、給予。音量偏低，可靜音。 |
 | `assets/fonts/` | Fusion Pixel 12px（OFL）。字級 12 與 24，nearest。 |
 | `scripts/hud.gd` | 時鐘、連線、人數、事件文字、需求與快捷欄。快捷欄每格有編號、圖示與數量，數量在格子右下角，選中格有外框。底部操作說明有半透明深色底。點角色後左上角顯示名字與 hunger/energy/social，低於 30 標紅。事件句子依 event type 模板生成。時鐘只在 snapshot 與 agent_update 更新。 |
 | `scripts/player_input.gd` | 點角色查看需求，點 POI 移動。1–3 使用工具，4 使用目前選中物品，E 撿麵包，G 給予，Q 切換物品。失敗原因依 `intent_result.reason` 顯示具體中文。 |
@@ -239,7 +240,7 @@ TileMap 走 content id 這一輪不做。地面與建物仍由 `town_map.gd` 直
 
 順序固定，LLM 排在最後：
 
-1. 視覺基礎：tilemap 與 NPC sprite 已取代 ColorRect 方塊與純色背景。角色是 Ninja Adventure（CC0）四方向走路表，見 `game/assets/packs/default/actors/`。地圖 tileset 也來自同一包。TileMap 本身還沒改走 content id。表情、音效與 HUD 框還沒接。
+1. 視覺基礎：tilemap 與 NPC sprite 已取代 ColorRect 方塊與純色背景。角色、地圖、物品、表情、木框 HUD 與環境音樂都來自 Ninja Adventure（CC0）。TileMap 本身還沒改走 content id。噴水池立繪沒有，廣場是水面格。麵包圖是幸運餅，因為食物圖裡沒有麵包。
 2. Needs 系統。
 3. NPC 狀態圖示。
 4. 之後才做產品意義上的 LLM 居民。目前的 `BRAIN_MODE=llm` 只是可選的本機路徑，預設仍是 rules，不算這一步完成。

@@ -1,0 +1,5 @@
+Items are from the Ninja Adventure Asset Pack by Pixel-boy and AAA (CC0).
+https://pixel-boy.itch.io/ninja-adventure-asset-pack
+
+- bread.png: Items/Food/FortuneCookie.png (no bread icon; closest baked food)
+- wood.png: Items/Resource/Branch.png

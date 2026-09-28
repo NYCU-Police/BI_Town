@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/network_client.gd" id="2_net"]
 [ext_resource type="PackedScene" path="res://scenes/world.tscn" id="3_world"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="4_hud"]
 [ext_resource type="Script" path="res://scripts/player_input.gd" id="5_input"]
+[ext_resource type="Script" path="res://scripts/game_audio.gd" id="6_audio"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_main")
@@ -18,3 +19,6 @@ script = ExtResource("2_net")
 
 [node name="PlayerInput" type="Node" parent="."]
 script = ExtResource("5_input")
+
+[node name="GameAudio" type="Node" parent="."]
+script = ExtResource("6_audio")

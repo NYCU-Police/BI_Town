@@ -70,6 +70,7 @@ func _ready() -> void:
 		ring.default_color = Color(1, 0.95, 0.72)
 		ring.points = _circle_points(18.0, 20)
 		node.add_child(ring)
+	_place_cafe_bread()
 	_hover_label = Label.new()
 	_hover_label.name = "PoiHover"
 	_hover_label.visible = false
@@ -194,6 +195,29 @@ func show_speech(agent_id: String, content: String) -> void:
 	var npc: Node = _npcs[agent_id]
 	if npc.has_method("show_speech"):
 		npc.show_speech(content)
+
+
+func present_event(data: Dictionary) -> void:
+	var agent_id := str(data.get("agent_id", ""))
+	if not _npcs.has(agent_id):
+		return
+	var npc: Node = _npcs[agent_id]
+	if npc.has_method("react"):
+		npc.react(str(data.get("event", "")), str(data.get("item", "")))
+
+
+func _place_cafe_bread() -> void:
+	var cafe := get_node_or_null("POIs/cafe") as Node2D
+	if cafe == null:
+		return
+	var host := Node2D.new()
+	host.name = "Bread"
+	host.position = Vector2(14, 8)
+	var sprite := Sprite2D.new()
+	sprite.name = "Sprite"
+	host.add_child(sprite)
+	cafe.add_child(host)
+	VisualBinder.apply(sprite, host, "item.bread")
 
 
 func npc_position(agent_id: String) -> Vector2:

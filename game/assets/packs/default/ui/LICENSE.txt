@@ -1,0 +1,7 @@
+UI frames are Theme Wood from the Ninja Adventure Asset Pack by Pixel-boy and AAA (CC0).
+https://pixel-boy.itch.io/ninja-adventure-asset-pack
+
+- panel.png: nine_path_panel.png
+- panel_bg.png: nine_path_bg.png
+- slot.png: inventory_cell.png
+- button.png: button_normal.png
