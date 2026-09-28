@@ -77,9 +77,19 @@ func apply_snapshot(data: Dictionary) -> void:
 	if typeof(agents) != TYPE_ARRAY:
 		push_error("world_snapshot.agents is not an array")
 		return
+	var seen := {}
 	for agent in agents:
 		if typeof(agent) == TYPE_DICTIONARY:
+			var agent_id := str(agent.get("id", ""))
+			if not agent_id.is_empty():
+				seen[agent_id] = true
 			_upsert_npc(agent, true)
+	var stale: Array[String] = []
+	for agent_id in _npcs.keys():
+		if not seen.has(agent_id):
+			stale.append(str(agent_id))
+	for agent_id in stale:
+		_remove_npc(agent_id)
 	_separate_overlaps(true)
 
 
@@ -88,6 +98,10 @@ func apply_agent_update(data: Dictionary) -> void:
 	if typeof(agents) != TYPE_ARRAY:
 		push_error("agent_update.agents is not an array")
 		return
+	var removed: Variant = data.get("removed", [])
+	if typeof(removed) == TYPE_ARRAY:
+		for agent_id in removed:
+			_remove_npc(str(agent_id))
 	for agent in agents:
 		if typeof(agent) == TYPE_DICTIONARY:
 			_upsert_npc(agent, false)
@@ -126,6 +140,14 @@ func _separate_overlaps(snap: bool) -> void:
 			var npc: Node = _npcs[ids[index]]
 			if npc.has_method("set_cluster_slot"):
 				npc.set_cluster_slot(index, ids.size(), snap)
+
+
+func _remove_npc(agent_id: String) -> void:
+	if agent_id.is_empty() or not _npcs.has(agent_id):
+		return
+	var npc: Node = _npcs[agent_id]
+	_npcs.erase(agent_id)
+	npc.queue_free()
 
 
 func _upsert_npc(agent: Dictionary, snap: bool) -> void:

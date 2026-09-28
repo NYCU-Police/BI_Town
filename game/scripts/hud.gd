@@ -9,18 +9,26 @@ const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
 @onready var _status_label: Label = %StatusLabel
 @onready var _agents_label: Label = %AgentsLabel
 @onready var _event_log: RichTextLabel = %EventLog
+@onready var _needs_label: Label = %NeedsLabel
+@onready var _intent_label: Label = %IntentLabel
+
+var _slot_labels: Array[Label] = []
 
 var _agent_names: Dictionary = {}
 var _web_health_callback: Variant
 
 
 func _ready() -> void:
+	_slot_labels = [%Slot1, %Slot2, %Slot3, %Slot4]
 	_event_log.meta_clicked.connect(_on_log_meta)
 	set_connection(false)
 	_title_label.text = "BI_Town"
 	_render_identity(_read_local_frontend_commit(), "", "", false)
 	_time_label.text = "Day — --:--"
 	_agents_label.text = "Agents: 0"
+	_needs_label.text = "Hunger —  Energy —  Social —"
+	_intent_label.text = ""
+	set_hotbar(["1 —", "2 —", "3 —", "4 —"])
 	_request_health()
 
 
@@ -53,6 +61,10 @@ func apply_agent_update(data: Dictionary) -> void:
 	if typeof(agents) != TYPE_ARRAY:
 		push_error("agent_update.agents is not an array")
 		return
+	var removed: Variant = data.get("removed", [])
+	if typeof(removed) == TYPE_ARRAY:
+		for agent_id in removed:
+			_agent_names.erase(str(agent_id))
 	for agent in agents:
 		if typeof(agent) == TYPE_DICTIONARY:
 			_remember_agent(agent)
@@ -212,6 +224,22 @@ func _short_commit(commit: String) -> String:
 	return commit
 
 
+func set_hotbar(labels: Array) -> void:
+	for index in _slot_labels.size():
+		var text := "—"
+		if index < labels.size():
+			text = str(labels[index])
+		_slot_labels[index].text = text
+
+
+func set_needs(hunger: int, energy: int, social: int) -> void:
+	_needs_label.text = "Hunger %d  Energy %d  Social %d" % [hunger, energy, social]
+
+
+func show_intent_reason(reason: String) -> void:
+	_intent_label.text = reason
+
+
 func _set_clock(data: Dictionary) -> void:
 	if data.has("day") and data.has("time"):
 		_time_label.text = "Day %d — %s" % [int(data["day"]), data["time"]]
@@ -278,42 +306,58 @@ func _tone(text: String, color: String) -> String:
 	return "[color=%s]%s[/color]" % [color, _escape_bbcode(text)]
 
 
+const _EVENT_TEMPLATES := {
+	"left": "{time} {name} 離開 {place}",
+	"entered": "{time} {name} 抵達 {place}",
+	"activity": "{time} {name} 在{place} {task}",
+	"ate": "{time} {name} 吃了 {item}",
+	"gave": "{time} {name} 把 {item} 給了 {target}",
+	"picked_up": "{time} {name} 撿起 {item}",
+	"produced": "{time} {name} 做出 {item}",
+	"said": "{time} {name}{arrow}\n{quote}",
+	"thought": "{time} {name}（想）\n{quote}",
+}
+const _ITEM_NAMES := {
+	"bread": "麵包",
+	"wood": "木材",
+	"watering_can": "澆水壺",
+}
+
+
 func _format_event(data: Dictionary) -> String:
-	var timestamp := str(data.get("timestamp", "--:--"))
-	var agent_id := str(data.get("agent_id", ""))
 	var action := str(data.get("event", ""))
-	var name := _colored_name(agent_id)
-	if action == "said":
-		var content := str(data.get("content", ""))
-		var target_id := str(data.get("target_agent_id", ""))
-		var header := _join_header([_tone(timestamp, _SAID_COLOR), name])
-		if not target_id.is_empty():
-			header = _join_header([
-				_tone(timestamp, _SAID_COLOR),
-				name,
-				_tone("→", _SAID_COLOR),
-				_colored_name(target_id),
-			])
-		return header + "\n" + _tone("「%s」" % content, _SAID_COLOR)
-	if action == "activity":
-		var place := _place_label(str(data.get("location", "")))
-		var task := str(data.get("content", ""))
-		return "[font_size=12]%s[/font_size]" % _join_header([
-			_tone(timestamp, _MOVE_COLOR),
-			name,
-			_tone("在%s %s" % [place, task], _MOVE_COLOR),
-		])
-	if action == "thought":
-		var header := _join_header([_tone(timestamp, _THOUGHT_COLOR), name])
-		header += _tone("（想）", _THOUGHT_COLOR)
-		return header + "\n" + _tone(str(data.get("content", "")), _THOUGHT_COLOR)
-	var location := _place_label(str(data.get("location", "")))
-	var verb := "抵達" if action == "entered" else "離開"
-	return "[font_size=12]%s[/font_size]" % _join_header([
-		_tone(timestamp, _MOVE_COLOR),
-		name,
-		_tone("%s %s" % [verb, location], _MOVE_COLOR),
-	])
+	var template := str(_EVENT_TEMPLATES.get(action, "{time} {name} {action}"))
+	var move := action in ["left", "entered", "activity", "ate", "gave", "picked_up", "produced"]
+	var color := _MOVE_COLOR if move else (_THOUGHT_COLOR if action == "thought" else _SAID_COLOR)
+	var target_id := str(data.get("target_agent_id", ""))
+	var arrow := ""
+	if action == "said" and not target_id.is_empty():
+		arrow = " %s %s" % [_tone("→", _SAID_COLOR), _colored_name(target_id)]
+	var spoken := str(data.get("content", ""))
+	var quote := "「%s」" % spoken if action == "said" else spoken
+	var fields := {
+		"time": _tone(str(data.get("timestamp", "--:--")), color),
+		"name": _colored_name(str(data.get("agent_id", ""))),
+		"place": _tone(_place_label(str(data.get("location", ""))), color),
+		"task": _tone(str(data.get("content", "")), color),
+		"item": _tone(_item_label(str(data.get("item", ""))), color),
+		"target": _colored_name(target_id) if not target_id.is_empty() else "",
+		"arrow": arrow,
+		"quote": _tone(quote, color),
+		"action": _tone(action, color),
+	}
+	var line := template
+	for key in fields:
+		line = line.replace("{%s}" % key, str(fields[key]))
+	if move:
+		return "[font_size=12]%s[/font_size]" % line
+	return line
+
+
+func _item_label(item_id: String) -> String:
+	if item_id.is_empty():
+		return ""
+	return str(_ITEM_NAMES.get(item_id, item_id))
 
 
 func _join_header(parts: Array) -> String:
