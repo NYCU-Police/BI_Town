@@ -4,6 +4,7 @@ import logging
 from app import state
 from app.config import SIMULATION_TICK_SECONDS
 from app.simulation.llm_session import decision_worker
+from app.simulation.player_talk import push_notebooks
 from app.simulation.world import TickResult
 from app.websocket.broadcast import broadcast_changes
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 async def broadcast_tick(result: TickResult) -> None:
     await broadcast_changes(result.events, result.changed_agents)
+    await push_notebooks()
 
 
 async def simulation_loop() -> None:

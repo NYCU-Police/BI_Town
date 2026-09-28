@@ -1,0 +1,144 @@
+{
+  "id": "builtin_unsigned_letter",
+  "template_id": "anonymous_letter",
+  "title": "沒署名的信",
+  "public_brief": "辦公室門縫有一封沒署名的信，信上寫 Rin 偷了東西。",
+  "culprit_id": "alex",
+  "motive_id": "get_attention",
+  "motives": [
+    {
+      "id": "get_attention",
+      "label": "想被 Mina 注意到"
+    },
+    {
+      "id": "brushed_off",
+      "label": "想報復 Rin"
+    },
+    {
+      "id": "cover_debt",
+      "label": "想轉移欠款"
+    }
+  ],
+  "timeline": [
+    {
+      "id": "tl_door",
+      "time": "07:20",
+      "place": "office",
+      "actor_id": "alex",
+      "fact_id": "alex_wrote"
+    },
+    {
+      "id": "tl_seen",
+      "time": "07:20",
+      "place": "office",
+      "actor_id": "rin",
+      "fact_id": "rin_saw_alex_office"
+    }
+  ],
+  "facts": [
+    {
+      "id": "letter_found",
+      "text": "辦公室門縫有一封沒署名的信，信上寫 Rin 偷了東西。",
+      "public": true,
+      "holders": [],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "letter"
+      ],
+      "kind": "truth",
+      "contradicts": []
+    },
+    {
+      "id": "letter_not_rin",
+      "text": "Mina 說那封信的筆跡不是 Rin，她看過 Rin 的借書卡。",
+      "public": false,
+      "holders": [
+        "mina"
+      ],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "letter"
+      ],
+      "kind": "truth",
+      "contradicts": []
+    },
+    {
+      "id": "alex_wanted_notice",
+      "text": "Rin 說 Alex 昨天抱怨 Mina 都只跟她說話。",
+      "public": false,
+      "holders": [
+        "rin"
+      ],
+      "requires_trust": 40,
+      "requires_evidence": [],
+      "tags": [
+        "attention"
+      ],
+      "kind": "truth",
+      "contradicts": [],
+      "supports_motive": "get_attention"
+    },
+    {
+      "id": "alex_no_letter",
+      "text": "Alex 說他沒寫過信，早上也沒去辦公室。",
+      "public": false,
+      "holders": [
+        "alex"
+      ],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "letter",
+        "whereabouts"
+      ],
+      "kind": "lie",
+      "contradicts": [
+        "rin_saw_alex_office"
+      ],
+      "truth_id": "alex_wrote",
+      "sensitive": true
+    },
+    {
+      "id": "rin_saw_alex_office",
+      "text": "Rin 七點二十分看見 Alex 在辦公室門口停過。",
+      "public": false,
+      "holders": [
+        "rin"
+      ],
+      "requires_trust": 40,
+      "requires_evidence": [],
+      "tags": [
+        "whereabouts",
+        "letter"
+      ],
+      "kind": "truth",
+      "contradicts": [
+        "alex_no_letter"
+      ]
+    },
+    {
+      "id": "alex_wrote",
+      "text": "Alex 承認信是他從門縫塞進去的。",
+      "public": false,
+      "holders": [
+        "alex"
+      ],
+      "requires_trust": 70,
+      "requires_evidence": [],
+      "unlocked_by": [
+        "rin_saw_alex_office"
+      ],
+      "tags": [
+        "letter"
+      ],
+      "kind": "truth",
+      "contradicts": [
+        "alex_no_letter"
+      ],
+      "implicates": "alex",
+      "crack_text": "Alex 沒有再重複他沒寫過信。"
+    }
+  ]
+}

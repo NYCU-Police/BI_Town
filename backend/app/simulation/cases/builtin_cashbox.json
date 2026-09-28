@@ -1,0 +1,184 @@
+{
+  "id": "builtin_cashbox",
+  "template_id": "theft",
+  "title": "不見的開店金",
+  "public_brief": "今天開店前，咖啡廳櫃檯的錢盒是空的。",
+  "culprit_id": "alex",
+  "motive_id": "cover_debt",
+  "motives": [
+    {
+      "id": "cover_debt",
+      "label": "補上欠款"
+    },
+    {
+      "id": "jealousy",
+      "label": "想報復 Mina"
+    },
+    {
+      "id": "accident",
+      "label": "一時手滑"
+    }
+  ],
+  "timeline": [
+    {
+      "id": "tl_leave",
+      "time": "06:50",
+      "place": "alex_home",
+      "actor_id": "alex",
+      "fact_id": "alex_left_home"
+    },
+    {
+      "id": "tl_seen",
+      "time": "07:10",
+      "place": "cafe",
+      "actor_id": "alex",
+      "fact_id": "rin_saw_alex"
+    },
+    {
+      "id": "tl_taken",
+      "time": "07:15",
+      "place": "cafe",
+      "actor_id": "alex",
+      "fact_id": "cash_taken"
+    }
+  ],
+  "facts": [
+    {
+      "id": "cash_missing",
+      "text": "今天開店前，咖啡廳櫃檯的錢盒是空的。",
+      "public": true,
+      "holders": [],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "cash"
+      ],
+      "kind": "truth",
+      "contradicts": []
+    },
+    {
+      "id": "mina_closed_full",
+      "text": "Mina 說昨天打烊時錢盒是滿的，鎖只有打烊的人會碰。",
+      "public": false,
+      "holders": [
+        "mina"
+      ],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "cash"
+      ],
+      "kind": "truth",
+      "contradicts": []
+    },
+    {
+      "id": "cash_taken",
+      "text": "不見的是咖啡廳今天的開店金，不是別人寄放的東西。",
+      "public": false,
+      "holders": [
+        "mina"
+      ],
+      "requires_trust": 0,
+      "requires_evidence": [
+        "mina_closed_full"
+      ],
+      "tags": [
+        "cash"
+      ],
+      "kind": "truth",
+      "contradicts": []
+    },
+    {
+      "id": "alex_owes",
+      "text": "Alex 昨天跟 Mina 說他欠了一筆錢，今天早上之前得補上。",
+      "public": false,
+      "holders": [
+        "mina"
+      ],
+      "requires_trust": 40,
+      "requires_evidence": [],
+      "tags": [
+        "money"
+      ],
+      "kind": "truth",
+      "contradicts": [],
+      "supports_motive": "cover_debt"
+    },
+    {
+      "id": "alex_was_home",
+      "text": "Alex 說七點以前他一直在家裡睡覺。",
+      "public": false,
+      "holders": [
+        "alex"
+      ],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "whereabouts"
+      ],
+      "kind": "lie",
+      "contradicts": [
+        "rin_saw_alex"
+      ],
+      "truth_id": "alex_left_home",
+      "sensitive": true
+    },
+    {
+      "id": "rin_saw_alex",
+      "text": "早上七點十分，Rin 看見 Alex 從咖啡廳側門出來。",
+      "public": false,
+      "holders": [
+        "rin"
+      ],
+      "requires_trust": 40,
+      "requires_evidence": [
+        "mina_closed_full"
+      ],
+      "tags": [
+        "whereabouts",
+        "cafe"
+      ],
+      "kind": "truth",
+      "contradicts": [
+        "alex_was_home"
+      ]
+    },
+    {
+      "id": "rin_alibi",
+      "text": "Rin 七點半已經在圖書館排今天的書架。",
+      "public": false,
+      "holders": [
+        "rin"
+      ],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "whereabouts"
+      ],
+      "kind": "truth",
+      "contradicts": []
+    },
+    {
+      "id": "alex_left_home",
+      "text": "Alex 承認他七點前就出了門，並沒有在睡覺。",
+      "public": false,
+      "holders": [
+        "alex"
+      ],
+      "requires_trust": 70,
+      "requires_evidence": [],
+      "unlocked_by": [
+        "rin_saw_alex"
+      ],
+      "tags": [
+        "whereabouts"
+      ],
+      "kind": "truth",
+      "contradicts": [
+        "alex_was_home"
+      ],
+      "implicates": "alex",
+      "crack_text": "Alex 沒有再重複他七點還在家裡。"
+    }
+  ]
+}

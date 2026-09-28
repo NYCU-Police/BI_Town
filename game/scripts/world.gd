@@ -39,6 +39,7 @@ var _hover_label: Label
 var _destination_mark: Node2D
 var _place_labels: Dictionary = {}
 var _show_content_ids := false
+var _notice_label: Label
 
 
 func _ready() -> void:
@@ -85,6 +86,20 @@ func _ready() -> void:
 	add_child(_hover_label)
 	_destination_mark = _make_destination_mark()
 	add_child(_destination_mark)
+	_notice_label = Label.new()
+	_notice_label.name = "PlazaNotice"
+	_notice_label.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_notice_label.z_index = 30
+	_notice_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_notice_label.position = POIS["plaza"] + Vector2(-110, 18)
+	_notice_label.size = Vector2(220, 48)
+	_notice_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_notice_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_notice_label.add_theme_font_size_override("font_size", 12)
+	_notice_label.add_theme_color_override("font_color", Color("#f4f0e6"))
+	_notice_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+	_notice_label.add_theme_constant_override("outline_size", 4)
+	add_child(_notice_label)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -150,8 +165,14 @@ func _sync_clock(data: Dictionary) -> void:
 		clock.set_clock(str(data["time"]))
 
 
+func set_notice(text: String) -> void:
+	if _notice_label != null:
+		_notice_label.text = text
+
+
 func apply_snapshot(data: Dictionary) -> void:
 	_sync_clock(data)
+	set_notice(str(data.get("notice", "")))
 	_you = str(data.get("you", ""))
 	var agents: Variant = data.get("agents", [])
 	if typeof(agents) != TYPE_ARRAY:
@@ -175,6 +196,8 @@ func apply_snapshot(data: Dictionary) -> void:
 
 func apply_agent_update(data: Dictionary) -> void:
 	_sync_clock(data)
+	if data.has("notice"):
+		set_notice(str(data.get("notice", "")))
 	var agents: Variant = data.get("agents", [])
 	if typeof(agents) != TYPE_ARRAY:
 		push_error("agent_update.agents is not an array")

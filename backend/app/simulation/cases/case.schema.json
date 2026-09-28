@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bitown.aicanhelp.app/schemas/case.schema.json",
+  "title": "Case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "template_id",
+    "title",
+    "public_brief",
+    "culprit_id",
+    "motive_id",
+    "motives",
+    "timeline",
+    "facts"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "template_id": {
+      "type": "string",
+      "enum": ["theft", "vandalism", "anonymous_letter"]
+    },
+    "title": { "type": "string", "minLength": 1, "maxLength": 24 },
+    "public_brief": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "culprit_id": { "type": "string", "enum": ["mina", "alex", "rin"] },
+    "motive_id": { "type": "string", "minLength": 1 },
+    "motives": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/motive" }
+    },
+    "timeline": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/beat" }
+    },
+    "facts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/fact" }
+    }
+  },
+  "$defs": {
+    "motive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1, "maxLength": 16 }
+      }
+    },
+    "beat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "time", "place", "actor_id", "fact_id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "time": {
+          "type": "string",
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "place": { "type": "string", "minLength": 1 },
+        "actor_id": { "type": "string", "enum": ["mina", "alex", "rin"] },
+        "fact_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "text",
+        "public",
+        "holders",
+        "requires_trust",
+        "requires_evidence",
+        "tags",
+        "kind",
+        "contradicts"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "public": { "type": "boolean" },
+        "holders": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["mina", "alex", "rin"] }
+        },
+        "requires_trust": { "type": "integer", "enum": [0, 40, 70] },
+        "requires_evidence": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "unlocked_by": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "kind": { "type": "string", "enum": ["truth", "lie"] },
+        "contradicts": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "truth_id": { "type": "string", "minLength": 1 },
+        "implicates": { "type": "string", "enum": ["mina", "alex", "rin"] },
+        "supports_motive": { "type": "string", "minLength": 1 },
+        "sensitive": { "type": "boolean" },
+        "crack_text": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    }
+  }
+}

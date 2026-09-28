@@ -48,6 +48,8 @@
 
 ## 3. 案件資料
 
+這一輪只載入下面三份內建案件，不呼叫模型填寫 `title`、`public_brief`、事實的 `text` 或 `crack_text`。模型填寫留到 PR3 之後。
+
 結構由伺服器從範本選定：犯人、動機、時間線、每條事實的持有者與門檻。模型只填 `title`、`public_brief`、每條事實的 `text` 與 `crack_text`。它不能改 id、持有者、門檻、犯人、動機。
 
 JSON Schema 在 [`schemas/case.schema.json`](../schemas/case.schema.json)。伺服器用這份檔驗證案件本體。它含 `$ref`，不要塞進 Ollama 的 `format`；給模型的對話 schema 仍像現在的 `decision_schema()` 一樣在程式裡組扁平物件。

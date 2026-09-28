@@ -124,6 +124,9 @@ class World:
         for agent_id in self.agents:
             self.bodies[agent_id] = _spawn_body()
             self._sent_needs[agent_id] = self._rounded(agent_id)
+        self.case: dict[str, object] = {}
+        self.notebook_dirty = False
+        self._install_case(self.day, reset_notes=False)
 
     def add_event(self, event: WorldEvent) -> None:
         self.events.append(event)
@@ -147,6 +150,7 @@ class World:
             time=self.time,
             agents=self.agent_list(),
             events=self.recent_events(),
+            notice=self.notice_text(),
         )
 
     def add_player(self, player_id: str) -> Agent:
@@ -329,11 +333,7 @@ class World:
 
         for agent_id in self.agents:
             self._tick_body_needs(agent_id)
-        self.day, self.time = advance_clock(
-            self.day,
-            self.time,
-            GAME_MINUTES_PER_TICK,
-        )
+        self._roll_clock()
         return TickResult(
             events=new_events,
             changed_agents=self._pack(changed_ids),
@@ -375,15 +375,38 @@ class World:
             if after != before:
                 changed_ids.add(agent.id)
             self._tick_body_needs(agent.id)
+        self._roll_clock()
+        return TickResult(
+            events=new_events,
+            changed_agents=self._pack(changed_ids),
+        )
+
+    def _roll_clock(self) -> None:
+        previous = self.day
         self.day, self.time = advance_clock(
             self.day,
             self.time,
             GAME_MINUTES_PER_TICK,
         )
-        return TickResult(
-            events=new_events,
-            changed_agents=self._pack(changed_ids),
-        )
+        if self.day != previous:
+            self._install_case(self.day, reset_notes=True)
+
+    def _install_case(self, day: int, *, reset_notes: bool) -> None:
+        from app.simulation.cases import case_for_day, public_fact_ids
+        from app.simulation.player_talk import Dossier
+
+        self.case = case_for_day(day)
+        if not reset_notes:
+            return
+        self.notebook_dirty = True
+        public = public_fact_ids(self.case)
+        for dossier in self.dossiers.values():
+            if isinstance(dossier, Dossier):
+                dossier.notes = list(public)
+
+    def notice_text(self) -> str:
+        brief = self.case.get("public_brief")
+        return brief if isinstance(brief, str) else ""
 
     def _decide_npc(self, agent: Agent, time: str) -> WorldEvent | None:
         if self._collapsed(agent.id):
@@ -497,6 +520,9 @@ class World:
             return self._fail("not_holding")
         self._add_item(agent.id, item, -1)
         self._add_item(other.id, item, 1)
+        from app.simulation.player_talk import grant_gift
+
+        grant_gift(self, agent.id, other.id, item)
         gave = WorldEvent(
             timestamp=self.time,
             agent_id=agent.id,

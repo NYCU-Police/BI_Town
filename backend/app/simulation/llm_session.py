@@ -886,6 +886,7 @@ class DecisionJob:
     client_seq: int = 0
     player_id: str = ""
     enqueued_at: float = 0.0
+    allowed_fact_ids: tuple[str, ...] = ()
 
 
 @dataclass

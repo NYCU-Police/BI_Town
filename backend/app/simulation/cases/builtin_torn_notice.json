@@ -1,0 +1,144 @@
+{
+  "id": "builtin_torn_notice",
+  "template_id": "vandalism",
+  "title": "撕掉的公告",
+  "public_brief": "廣場公告欄今天被人撕了一角。",
+  "culprit_id": "rin",
+  "motive_id": "brushed_off",
+  "motives": [
+    {
+      "id": "brushed_off",
+      "label": "受不了被敷衍"
+    },
+    {
+      "id": "cover_debt",
+      "label": "想掩蓋欠款"
+    },
+    {
+      "id": "accident",
+      "label": "風把它吹破"
+    }
+  ],
+  "timeline": [
+    {
+      "id": "tl_board",
+      "time": "07:05",
+      "place": "plaza",
+      "actor_id": "rin",
+      "fact_id": "rin_at_board"
+    },
+    {
+      "id": "tl_seen",
+      "time": "07:05",
+      "place": "plaza",
+      "actor_id": "alex",
+      "fact_id": "alex_saw_rin"
+    }
+  ],
+  "facts": [
+    {
+      "id": "board_torn",
+      "text": "廣場公告欄今天被人撕了一角。",
+      "public": true,
+      "holders": [],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "board"
+      ],
+      "kind": "truth",
+      "contradicts": []
+    },
+    {
+      "id": "mina_was_home",
+      "text": "Mina 說七點她還在家，八點才往咖啡廳走。",
+      "public": false,
+      "holders": [
+        "mina"
+      ],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "whereabouts"
+      ],
+      "kind": "truth",
+      "contradicts": []
+    },
+    {
+      "id": "alex_heard_brush",
+      "text": "Alex 說 Rin 昨天抱怨 Mina 沒把她的話聽完。",
+      "public": false,
+      "holders": [
+        "alex"
+      ],
+      "requires_trust": 40,
+      "requires_evidence": [],
+      "tags": [
+        "grudge"
+      ],
+      "kind": "truth",
+      "contradicts": [],
+      "supports_motive": "brushed_off"
+    },
+    {
+      "id": "rin_was_library",
+      "text": "Rin 說早上她一直在圖書館，沒去過廣場。",
+      "public": false,
+      "holders": [
+        "rin"
+      ],
+      "requires_trust": 0,
+      "requires_evidence": [],
+      "tags": [
+        "whereabouts"
+      ],
+      "kind": "lie",
+      "contradicts": [
+        "alex_saw_rin"
+      ],
+      "truth_id": "rin_at_board",
+      "sensitive": true
+    },
+    {
+      "id": "alex_saw_rin",
+      "text": "七點五分，Alex 在廣場看見 Rin 站在公告欄前。",
+      "public": false,
+      "holders": [
+        "alex"
+      ],
+      "requires_trust": 40,
+      "requires_evidence": [],
+      "tags": [
+        "whereabouts",
+        "board"
+      ],
+      "kind": "truth",
+      "contradicts": [
+        "rin_was_library"
+      ]
+    },
+    {
+      "id": "rin_at_board",
+      "text": "Rin 承認七點她在公告欄前，不是一直待在圖書館。",
+      "public": false,
+      "holders": [
+        "rin"
+      ],
+      "requires_trust": 70,
+      "requires_evidence": [],
+      "unlocked_by": [
+        "alex_saw_rin"
+      ],
+      "tags": [
+        "whereabouts",
+        "board"
+      ],
+      "kind": "truth",
+      "contradicts": [
+        "rin_was_library"
+      ],
+      "implicates": "rin",
+      "crack_text": "Rin 沒有再重複她早上一直在圖書館。"
+    }
+  ]
+}

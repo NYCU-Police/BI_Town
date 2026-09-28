@@ -24,6 +24,7 @@ async def broadcast_changes(
             time=state.world.time,
             agents=agents,
             removed=removed,
+            notice=state.world.notice_text(),
         )
     )
     await manager.broadcast(message.model_dump(exclude_none=True), exclude=exclude)

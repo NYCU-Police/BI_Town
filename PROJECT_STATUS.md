@@ -31,7 +31,7 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
 - WebSocket 是雙向的。連線會生成 `player_<conn_id>`，斷線就從世界上移除。私人進度掛在伺服器發的 `player_token` 上。客戶端可送 `intent`，伺服器回 `intent_result` 後立刻廣播變動。見 `docs/ADR/0005-bidirectional-websocket.md`。
 - WebSocket 訊息（`backend/app/models/schemas.py`）：
   - `session`：連線後的第一則，帶伺服器發的 `player_token`。
-  - `world_snapshot`：接著整包狀態（day、time、agents、events、`you`、`dialogue_history`）。`dialogue_history` 是這個 token 跟每位居民最近幾輪的私訊，重新整理後 HUD 用它把對話框填回去。
+  - `world_snapshot`：接著整包狀態（day、time、agents、events、`you`、`dialogue_history`、`notice`、`notes`）。`dialogue_history` 是這個 token 跟每位居民最近幾輪的私訊。`notice` 是廣場公告，`notes` 是這個 token 的筆記句子。按 N 打開筆記面板，不佔快捷欄。
   - `agent_update`：每個 tick 都送，附上 day 與 time。`agents` 只列本 tick 有移動、改狀態，或需求整數有變的人，可以是空陣列。需求只在整數變化時放進該 agent，並且是整數。`removed` 只在有人斷線時出現。
   - `world_event`：`left` / `entered`，以及 `ate` / `gave` / `picked_up` / `produced`（`item`，`gave` 另有 `target_agent_id`）。`llm` 模式另有 `said` 與 `thought`。句子由客戶端依 event type 組，伺服器不送現成句子。`said` / `thought` 的 content 在寫入前用 OpenCC `s2twp` 轉成繁體中文。`conversing` / `conversing_ended` 不含對白。
   - `intent` / `intent_result`：見 ADR 0005。`talk` 受理後另有單播的 `dialogue_result`（只有發問的那個連線看得到回覆）。
