@@ -91,8 +91,8 @@
     "category": "actors",
     "footprint": [16, 16],
     "origin": [0.5, 1.0],
-    "placeholder_color": "#d9d9d4",
-    "name_color": "#d9d9d4"
+    "placeholder_color": "#3d5afe",
+    "name_color": "#b3c3ff"
   },
   "item.bread": {
     "kind": "sprite",

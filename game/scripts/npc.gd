@@ -29,8 +29,13 @@ var _agent_id: String = ""
 var _visual_id: String = ""
 var _slot_index: int = 0
 var _anim_time: float = 0.0
+var _local_player: bool = false
+
+var _you_ring: Line2D
+var _you_arrow: Polygon2D
 
 @onready var _sprite: Sprite2D = $Sprite
+@onready var _name_plate: Panel = $NamePlate
 @onready var _label: Label = $Label
 @onready var _activity: Label = $Activity
 @onready var _speech: Node2D = $Speech
@@ -44,6 +49,23 @@ func _ready() -> void:
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.scale = Vector2.ONE
 	_sprite.position = Vector2.ZERO
+	_you_ring = Line2D.new()
+	_you_ring.name = "YouRing"
+	_you_ring.width = 2.0
+	_you_ring.closed = true
+	_you_ring.visible = false
+	_you_ring.z_index = -1
+	_you_ring.points = _circle_points(11.0, 16)
+	add_child(_you_ring)
+	_you_arrow = Polygon2D.new()
+	_you_arrow.name = "YouArrow"
+	_you_arrow.polygon = PackedVector2Array([
+		Vector2(-5, -34),
+		Vector2(5, -34),
+		Vector2(0, -22),
+	])
+	_you_arrow.visible = false
+	add_child(_you_arrow)
 
 
 func server_anchor() -> Vector2:
@@ -74,6 +96,52 @@ func update_from_server(data: Dictionary, snap: bool = false) -> void:
 		_activity.visible = true
 
 	_place(snap)
+	if _local_player:
+		_show_you()
+
+
+func set_local_player(enabled: bool) -> void:
+	_local_player = enabled
+	if enabled:
+		_show_you()
+		return
+	z_index = 0
+	if _you_ring != null:
+		_you_ring.visible = false
+	if _you_arrow != null:
+		_you_arrow.visible = false
+	_name_plate.offset_top = -36.0
+	_name_plate.offset_bottom = -22.0
+	_label.offset_top = -36.0
+	_label.offset_bottom = -22.0
+
+
+func _show_you() -> void:
+	_label.text = "你"
+	var tint := VisualBinder.name_color("agent.player")
+	_label.add_theme_color_override("font_color", tint)
+	_name_plate.offset_top = -52.0
+	_name_plate.offset_bottom = -38.0
+	_label.offset_top = -52.0
+	_label.offset_bottom = -38.0
+	_you_arrow.color = tint
+	_you_arrow.visible = true
+	_you_ring.default_color = Color(tint.r, tint.g, tint.b, 0.95)
+	_you_ring.visible = true
+	z_index = 6
+	var fallback := get_node_or_null("Fallback")
+	if fallback != null:
+		for child in fallback.get_children():
+			if child is Label:
+				(child as CanvasItem).visible = false
+
+
+func _circle_points(radius: float, count: int) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in count:
+		var angle := TAU * float(index) / float(count)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
+	return points
 
 
 func set_stand_offset(offset: Vector2, snap: bool) -> void:

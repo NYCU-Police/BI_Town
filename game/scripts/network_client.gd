@@ -4,6 +4,7 @@ signal snapshot_received(data: Dictionary)
 signal agent_updated(data: Dictionary)
 signal event_received(data: Dictionary)
 signal connection_changed(online: bool)
+signal intent_resolved(client_seq: int, ok: bool, reason: String)
 
 ## Desktop default. Web builds resolve the URL in _ready().
 @export var websocket_url: String = "ws://127.0.0.1:8000/ws"
@@ -16,6 +17,7 @@ var _resolved_url: String = ""
 var _reconnect_delay: float = RECONNECT_INITIAL_SECONDS
 var _reconnect_timer: float = 0.0
 var _online: bool = false
+var _client_seq: int = 0
 
 
 func _ready() -> void:
@@ -88,14 +90,40 @@ func _read_messages() -> void:
 		_handle_text(text)
 
 
+func send_intent(intent: Dictionary) -> void:
+	if _socket == null or _socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		push_warning("WebSocket is not open; intent was not sent")
+		return
+	_client_seq += 1
+	var payload: Dictionary = {
+		"type": "intent",
+		"client_seq": _client_seq,
+		"intent": intent,
+	}
+	var err := _socket.send_text(JSON.stringify(payload))
+	if err != OK:
+		push_error("WebSocket send failed: %s" % error_string(err))
+
+
 func _handle_text(text: String) -> void:
-	var parsed: Variant = JSON.parse_string(text)
+	var trimmed := text.strip_edges()
+	if not trimmed.begins_with("{"):
+		return
+	var parsed: Variant = JSON.parse_string(trimmed)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		push_error("WebSocket JSON parse failed: %s" % text)
 		return
 
 	var message: Dictionary = parsed
 	var msg_type := str(message.get("type", ""))
+	if msg_type == "intent_result":
+		var reason: Variant = message.get("reason")
+		intent_resolved.emit(
+			int(message.get("client_seq", 0)),
+			bool(message.get("ok", false)),
+			"" if reason == null else str(reason),
+		)
+		return
 	var raw_data: Variant = message.get("data", {})
 	if typeof(raw_data) != TYPE_DICTIONARY:
 		push_error("WebSocket message data is not an object: %s" % text)
