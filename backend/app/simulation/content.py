@@ -4,6 +4,7 @@ from app.config import FOOD_ITEMS, PARK_PRODUCT_ID, TOOL_IDS
 from app.simulation.poi import POIS
 
 RESIDENT_IDS = ("mina", "alex", "rin", "player")
+FX_IDS = ("chat", "collapsed", "hungry")
 
 
 def to_content_id(namespace: str, plain_id: str) -> str:
@@ -19,6 +20,7 @@ def content_ids() -> tuple[str, ...]:
         *(to_content_id("item", item_id) for item_id in sorted(FOOD_ITEMS)),
         to_content_id("item", PARK_PRODUCT_ID),
         *(to_content_id("tool", tool_id) for tool_id in TOOL_IDS),
+        *(to_content_id("fx", fx_id) for fx_id in FX_IDS),
     ):
         if content_id not in seen:
             seen.append(content_id)

@@ -1,0 +1,8 @@
+Audio is from the Ninja Adventure Asset Pack by Pixel-boy and AAA (CC0).
+https://pixel-boy.itch.io/ninja-adventure-asset-pack
+
+- village.ogg: Audio/Musics/4 - Village.ogg
+- click.wav: Audio/Sounds/Menu/Accept5.wav
+- pickup.wav: Audio/Sounds/Bonus/Coin.wav
+- eat.wav: Audio/Sounds/Magic & Skill/Heal.wav
+- give.wav: Audio/Sounds/Bonus/Bonus2.wav

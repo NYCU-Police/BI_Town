@@ -3,8 +3,10 @@ extends TileMapLayer
 ## Visual only. Place ids and coordinates live in world.gd and must match
 ## backend/app/simulation/poi.py. Tiles are the Ninja Adventure pack, 16×16,
 ## no spacing. Building lots stay on the same origins as the previous map.
-## The pack has no lamp, bench, or fountain sprite, so those are not drawn.
-## The plaza pool is water tiles.
+## The plaza pool is water tiles. There is no fountain sprite.
+## Street lamps are the camp lantern post. Benches are the wooden seat
+## in the house sheet. South buildings keep their lots; a door tile sits
+## on the north sidewalk, where the interaction point is.
 
 const TILE := 16
 const MAP_W := 36
@@ -21,6 +23,9 @@ const _DETAIL := "res://assets/packs/default/tiles/floor_detail.png"
 const _HOUSE := "res://assets/packs/default/tiles/house.png"
 const _NATURE := "res://assets/packs/default/tiles/nature.png"
 const _WATER := "res://assets/packs/default/tiles/water.png"
+const _LAMP := "res://assets/packs/default/tiles/lamp.png"
+const _DOOR := Vector2i(9, 3)
+const _BENCH := Vector2i(31, 15)
 
 var _floor_source := 0
 var _detail_source := 0
@@ -40,21 +45,8 @@ func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
 	z_index = 0
 	y_sort_enabled = false
-	_detail = get_node_or_null("../Detail") as TileMapLayer
-	_water_layer = get_node_or_null("../Water") as TileMapLayer
-	_objects = get_node_or_null("../Objects") as TileMapLayer
-	_prepare_layer(_detail, 0, false)
-	_prepare_layer(_water_layer, 0, false)
-	_prepare_layer(_objects, 1, true)
-	if _water_layer != null:
-		var flow := ShaderMaterial.new()
-		flow.shader = load("res://shaders/water.gdshader")
-		_water_layer.material = flow
-	_lights = get_parent().get_node_or_null("NightLights") as Node2D
-	if _lights == null:
-		push_error("World is missing the NightLights node")
-		_lights = Node2D.new()
-	_rebuild()
+	# Later siblings (Objects, NightLights) are not in the tree yet.
+	call_deferred("_rebuild")
 
 
 func _prepare_layer(layer: TileMapLayer, layer_z: int, sort_y: bool) -> void:
@@ -66,6 +58,20 @@ func _prepare_layer(layer: TileMapLayer, layer_z: int, sort_y: bool) -> void:
 
 
 func _rebuild() -> void:
+	_detail = get_node_or_null("../Detail") as TileMapLayer
+	_water_layer = get_node_or_null("../Water") as TileMapLayer
+	_objects = get_node_or_null("../Objects") as TileMapLayer
+	_prepare_layer(_detail, 0, false)
+	_prepare_layer(_water_layer, 0, false)
+	_prepare_layer(_objects, 1, true)
+	if _water_layer != null and _water_layer.material == null:
+		var flow := ShaderMaterial.new()
+		flow.shader = load("res://shaders/water.gdshader")
+		_water_layer.material = flow
+	_lights = get_parent().get_node_or_null("NightLights") as Node2D
+	if _lights == null:
+		push_error("World is missing the NightLights node")
+		_lights = Node2D.new()
 	var tileset := TileSet.new()
 	tileset.tile_size = Vector2i(TILE, TILE)
 	tileset.uv_clipping = true
@@ -76,6 +82,8 @@ func _rebuild() -> void:
 	_house_source = _add_source(tileset, _HOUSE, [])
 	for building in _buildings():
 		_create_sorted(tileset, _house_source, building[1], building[2])
+	_create_sorted(tileset, _house_source, _DOOR, Vector2i(1, 1))
+	_create_sorted(tileset, _house_source, _BENCH, Vector2i(2, 1))
 	_nature_source = _add_source(tileset, _NATURE, [])
 	for tree_atlas in [Vector2i(0, 0), Vector2i(2, 0), Vector2i(6, 0)]:
 		_create_sorted(tileset, _nature_source, tree_atlas, Vector2i(2, 2))
@@ -91,6 +99,8 @@ func _rebuild() -> void:
 	if _objects != null:
 		_objects.tile_set = tileset
 		_objects.clear()
+		for child in _objects.get_children():
+			child.free()
 	for child in _lights.get_children():
 		child.free()
 	_ground.clear()
@@ -100,6 +110,9 @@ func _rebuild() -> void:
 	_paint_park()
 	_paint_plaza()
 	_paint_buildings()
+	_paint_north_doors()
+	_paint_benches()
+	_paint_lamps()
 	_paint_trees()
 	_paint_pool()
 	_paint_flowers()
@@ -200,6 +213,50 @@ func _paint_buildings() -> void:
 			for x in size.x:
 				_blocked[origin + Vector2i(x, y)] = true
 		_window_light(origin, size)
+
+
+func _paint_north_doors() -> void:
+	# Office and library interaction points are on the north sidewalk.
+	for cell in [Vector2i(3, 8), Vector2i(10, 8)]:
+		if _objects != null:
+			_objects.set_cell(cell, _house_source, _DOOR)
+		_blocked[cell] = true
+
+
+func _paint_benches() -> void:
+	for origin in [Vector2i(16, 10), Vector2i(22, 10), Vector2i(16, 14), Vector2i(28, 14)]:
+		if not _fits(origin, Vector2i(2, 1)):
+			continue
+		if _objects != null:
+			_objects.set_cell(origin, _house_source, _BENCH)
+		_blocked[origin] = true
+		_blocked[origin + Vector2i(1, 0)] = true
+
+
+func _paint_lamps() -> void:
+	var texture := load(_LAMP) as Texture2D
+	if texture == null or _objects == null:
+		return
+	for cell in [Vector2i(6, 5), Vector2i(13, 5), Vector2i(20, 5), Vector2i(27, 5), Vector2i(33, 5)]:
+		if _blocked.has(cell):
+			continue
+		var lamp := Sprite2D.new()
+		lamp.texture = texture
+		lamp.texture_filter = TEXTURE_FILTER_NEAREST
+		lamp.centered = true
+		lamp.position = Vector2(cell) * float(TILE) + Vector2(TILE * 0.5, TILE)
+		lamp.offset = Vector2(0, -8)
+		lamp.y_sort_enabled = true
+		_objects.add_child(lamp)
+		_blocked[cell] = true
+		var light := PointLight2D.new()
+		light.texture = _glow_texture()
+		light.texture_scale = 1.6
+		light.energy = 0.0
+		light.color = Color(1.0, 0.78, 0.45)
+		light.position = lamp.position + Vector2(0, -10)
+		light.add_to_group("night_light")
+		_lights.add_child(light)
 
 
 func _window_light(origin: Vector2i, size: Vector2i) -> void:

@@ -32,6 +32,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var click := event as InputEventMouseButton
 		if click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
+			var audio := get_node_or_null("../GameAudio")
+			if audio != null and audio.has_method("play_click"):
+				audio.play_click()
 			_click_move()
 		return
 	if event is InputEventKey:

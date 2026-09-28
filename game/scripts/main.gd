@@ -24,6 +24,11 @@ func _on_agent_update(data: Dictionary) -> void:
 
 func _on_event(data: Dictionary) -> void:
 	_hud.apply_event(data)
+	if _world.has_method("present_event"):
+		_world.present_event(data)
+	var audio := get_node_or_null("GameAudio")
+	if audio != null and audio.has_method("present_event"):
+		audio.present_event(data)
 	if str(data.get("event", "")) != "said":
 		return
 	if _world.has_method("show_speech"):

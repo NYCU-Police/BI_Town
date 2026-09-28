@@ -158,5 +158,29 @@
     "footprint": [16, 16],
     "origin": [0.5, 1.0],
     "placeholder_color": "#4f8fbe"
+  },
+  "fx.chat": {
+    "kind": "sprite",
+    "category": "fx",
+    "file": "emote20.png",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#d9cbb8"
+  },
+  "fx.collapsed": {
+    "kind": "sprite",
+    "category": "fx",
+    "file": "emote28.png",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#8a86b0"
+  },
+  "fx.hungry": {
+    "kind": "sprite",
+    "category": "fx",
+    "file": "emote19.png",
+    "footprint": [16, 16],
+    "origin": [0.5, 1.0],
+    "placeholder_color": "#c47a4a"
   }
 }

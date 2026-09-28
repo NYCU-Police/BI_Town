@@ -111,7 +111,9 @@ static func _resolve(content_id: String) -> String:
 	# TileMap already draws these. A user pack may still override it.
 	if str(entry.get("kind", "")) == "none":
 		return ""
-	var default_path := _DEFAULT_PATH % [category, file_name]
+	var recorded := str(entry.get("file", "")).get_basename()
+	var default_name := recorded if not recorded.is_empty() else file_name
+	var default_path := _DEFAULT_PATH % [category, default_name]
 	if ResourceLoader.exists(default_path):
 		return default_path
 	_warn_once(content_id, "fell back to placeholder")

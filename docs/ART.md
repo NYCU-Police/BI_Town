@@ -1,6 +1,6 @@
 # 手繪覆寫
 
-外觀記在 `game/data/visual_manifest.json`，只存 kind、category、footprint、origin 與顏色，不存路徑。
+外觀記在 `game/data/visual_manifest.json`，存 kind、category、footprint、origin 與顏色。表情另外記 `file`，只是預設圖的檔名，不是路徑。
 
 `VisualBinder` 用 content id 推出檔名。`kind` 為 `sprite` 時依序找：
 
@@ -25,7 +25,15 @@ Ninja Adventure Asset Pack，作者 Pixel-boy 與 AAA。
 授權：CC0 1.0 Universal（可商用、可再散布，不要求署名）。
 https://creativecommons.org/publicdomain/zero/1.0/
 
-這一輪用到的只有四張角色表（Princess、Knight、Monk、Boy）與 Floor、FloorDetail、House、Nature、Water tileset。麵包、木材、路燈、長椅、噴水池立繪在包裡沒有可對上的圖，保留 placeholder，沒有用其他來源替代。澆水壺、表情氣泡、UI 框、音樂、音效在包裡有，但還沒接上。
+`kind` 為 `sprite` 且 manifest 有 `file` 時，預設圖用那個檔名（表情是 `emote19.png`、`emote28.png`、`emote20.png`）。user pack 仍用 content id 的名字，例如 `packs/user/fx/hungry.png`。
+
+物品：麵包用 Fortune Cookie（食物圖裡沒有麵包），木材用 Branch，澆水壺用 WateringCan。快捷欄、角色手上、咖啡廳櫃檯都走 `VisualBinder`。
+
+表情：`fx.hungry` 是 emote19（不適的嘴；emote1–30 沒有食物圖），`fx.collapsed` 是 emote28（Zzz），`fx.chat` 是 emote20（省略號）。hunger 低於 30 顯示飢餓，collapsed 顯示睡覺，說話顯示對話約 3 秒。
+
+聲音要等第一次點擊。音樂是 `4 - Village.ogg`。點擊 Accept5、撿起 Coin、吃 Heal、給予 Bonus2。HUD 靜音鍵預設音量偏低。
+
+地圖：南邊兩棟的互動點在北側人行道，各補一扇門（House 圖塊 9,3）。路燈是 Camp 圖塊 (6,5) 的燈籠柱，夜晚有光。長椅是 House (31,15) 的木凳。噴水池立繪沒有；廣場仍是水面格。看過 `TilesetHouse`、`TilesetNature`（藍色圓形是史萊姆）、`TilesetElement`、`tileset_camp`、`TilesetVillageAbandoned`。
 
 手繪蓋過預設圖的流程：
 

@@ -6,6 +6,10 @@ const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
 const _LOW_NEED := 30
 const _NEED_OK := Color(0.93, 0.93, 0.9)
 const _NEED_LOW := Color(0.93, 0.32, 0.32)
+const _UI_PANEL := "res://assets/packs/default/ui/panel.png"
+const _UI_BG := "res://assets/packs/default/ui/panel_bg.png"
+const _UI_SLOT := "res://assets/packs/default/ui/slot.png"
+const _UI_BUTTON := "res://assets/packs/default/ui/button.png"
 
 @onready var _title_label: Label = %Title
 @onready var _build_label: Label = %BuildLabel
@@ -37,6 +41,7 @@ func _ready() -> void:
 	_agents_label.text = "Agents: 0"
 	_needs_label.text = "Hunger —  Energy —  Social —"
 	_intent_label.text = ""
+	_apply_wood_frames()
 	set_hotbar([
 		{"content_id": "", "count": 0, "selected": false},
 		{"content_id": "", "count": 0, "selected": false},
@@ -268,13 +273,66 @@ func set_hotbar(slots: Array) -> void:
 			VisualBinder.apply_icon(host, content_id)
 
 
-func _slot_style(selected: bool) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.1, 0.11, 0.13, 0.92)
-	box.set_corner_radius_all(3)
-	box.set_border_width_all(2 if selected else 1)
-	box.border_color = Color(0.95, 0.78, 0.35) if selected else Color(0.32, 0.33, 0.36)
+func _slot_style(selected: bool) -> StyleBoxTexture:
+	# Selected slots use the orange panel; the others use the inventory cell.
+	return _wood_box(_UI_PANEL if selected else _UI_SLOT, 4 if selected else 3)
+
+
+func _apply_wood_frames() -> void:
+	var panel := $Panel as Panel
+	panel.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	panel.add_theme_stylebox_override("panel", _wood_box(_UI_PANEL, 6))
+	var inspect := $Inspect as Panel
+	if inspect != null:
+		inspect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		inspect.add_theme_stylebox_override("panel", _wood_box(_UI_PANEL, 6))
+	var hint := $Hotbar/Hint as PanelContainer
+	if hint != null:
+		hint.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		hint.add_theme_stylebox_override("panel", _wood_box(_UI_BG, 4))
+	var mute := Button.new()
+	mute.name = "MuteButton"
+	mute.text = "聲音"
+	mute.focus_mode = Control.FOCUS_NONE
+	mute.custom_minimum_size = Vector2(48, 24)
+	mute.offset_left = 16.0
+	mute.offset_top = 16.0
+	mute.offset_right = 64.0
+	mute.offset_bottom = 40.0
+	mute.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	mute.add_theme_font_size_override("font_size", 12)
+	var button_box := _wood_box(_UI_BUTTON, 0)
+	mute.add_theme_stylebox_override("normal", button_box)
+	mute.add_theme_stylebox_override("hover", button_box)
+	mute.add_theme_stylebox_override("pressed", button_box)
+	mute.add_theme_stylebox_override("focus", button_box)
+	mute.pressed.connect(_toggle_mute)
+	add_child(mute)
+
+
+func _wood_box(path: String, margin: int) -> StyleBoxTexture:
+	var box := StyleBoxTexture.new()
+	box.texture = load(path)
+	box.texture_margin_left = margin
+	box.texture_margin_right = margin
+	box.texture_margin_top = margin
+	box.texture_margin_bottom = margin
+	box.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_TILE
+	box.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_TILE
 	return box
+
+
+func _toggle_mute() -> void:
+	var audio := get_parent().get_node_or_null("GameAudio")
+	if audio == null or not audio.has_method("set_muted"):
+		return
+	var muted := true
+	if audio.has_method("is_muted"):
+		muted = not bool(audio.is_muted())
+	audio.set_muted(muted)
+	var mute := get_node_or_null("MuteButton") as Button
+	if mute != null:
+		mute.text = "靜音" if muted else "聲音"
 
 
 func _clear_slot_icon(host: Control) -> void:

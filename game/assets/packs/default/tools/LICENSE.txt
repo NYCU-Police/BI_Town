@@ -1,0 +1,4 @@
+Watering can is from the Ninja Adventure Asset Pack by Pixel-boy and AAA (CC0).
+https://pixel-boy.itch.io/ninja-adventure-asset-pack
+
+- watering_can.png: Items/Tool/WateringCan.png
