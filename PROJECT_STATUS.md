@@ -1,6 +1,6 @@
 # BI_Town 專案狀態
 
-給新的 AI 助手對話或新加入的隊友接手。描述的是 repo 現況（v0.1.0），不是目標產品。
+給新的 AI 助手對話或新加入的隊友接手。描述的是 `origin/main` 在 PR #38 合併之後的現況（v0.1.0），不是目標產品，也不包含尚未合併的 PR #39。
 
 ## 1. 專案是什麼
 
@@ -8,8 +8,160 @@
 - 類型：AI-native social simulation。預設大腦是行程表，不是 LLM。`BRAIN_MODE=llm` 才改走本機模型。正式站預設仍是 `rules`；要開見 `docs/DEPLOY.md`。
 - 架構：server-authoritative。World state 的唯一來源是 FastAPI backend。Godot client 只渲染 server 送來的狀態，不自行推進時鐘、不決定 NPC 去向。
 - World 存在 process 記憶體（`backend/app/state.py` 的 `World` singleton）。重啟即重置。Postgres 與 Redis 只在 Docker Compose 裡待命，backend 程式尚未連線。
-- 開局：Day 1、08:00。預設兩個 rule-based agent：Mina、Alex。`BRAIN_MODE=llm` 改為 Mina、Alex、Rin，三人都從 home 出發。地點：home、cafe、office、park。
-- 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`（含 `version`、`git_commit`、`deployed_at`、`brain_mode`）。部署步驟與回滾見 `docs/DEPLOY.md`。
+- 開局：Day 1、08:00。`rules` 只有 Mina、Alex，走行程表。`BRAIN_MODE=llm` 改為 Mina、Alex、Rin，三人都從自己的家出發，決策打本機 Ollama。地點是下面九個 POI，沒有共用的 `home`。
+- 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`（含 `version`、`git_commit`、`deployed_at`、`brain_mode`）。部署步驟與回滾見 `docs/DEPLOY.md`。合併進 `main` 且 CI 成功就會部署，世界回到 Day 1 08:00。正式站的 `BRAIN_MODE` 仍是 `rules`，程式預設也是 `rules`。
+
+## 1.1 已合併的謎題（PR1–PR3）
+
+玩法規格在 `docs/GDD.md`。案件 JSON 用 `schemas/case.schema.json` 驗證；Docker 只複製 `backend/app`，所以同一份 schema 也放在 `backend/app/simulation/cases/case.schema.json`，兩份必須逐字相同。案件在 import 時驗證，不由模型生成。
+
+| PR | 合併 | 分支上的事 |
+| --- | --- | --- |
+| #35 PR1 | `47e2838` | 自由文字 `talk`、伺服器發的 `player_token`、深色對話框、`conversing` 圖示、單播 `dialogue_result`。`rules` 立刻回 `npc_unavailable`。玩家對話優先於居民工作。 |
+| #36 PR1.1 | `66f60d7` | 玩家句子包在 `<player>`，歷史包在 `<history>`。`talk_log` 最多 200 則。dossier 超過 500 個 token 時丟掉最久沒出現的。斷線清掉 `conversing` 並廣播 `conversing_ended`。重連用 `dialogue_history` 把對話框補回來。 |
+| #37 PR2 | `9e6adad` | 三個內建案件輪替、信任、允許清單、私人筆記、廣場公告。 |
+| #38 PR3 | `654e2a1` | 出示筆記對質、八卦只傳標籤、犯人避開。 |
+
+尚未合併：`feat/mystery-pr4` 是 PR #39，等玩法方向確認。它不在這份現況裡。不要把它當成已上線，也不要在沒有新指示時合併或接著開下一號功能 PR。
+
+### 案件、信任、筆記（PR2）
+
+- 三個案件：`builtin_cashbox`、`builtin_torn_notice`、`builtin_unsigned_letter`。第 `day` 天用 `(day - 1) % 3`。換日時鐘跨過午夜會換案件，廣場公告改成新的 `public_brief`，筆記改成新案件的公開事實。信任與對話記憶不會因為換日清空。
+- 廣場公告就是當天 `public_brief`。筆記按 N 打開，不佔快捷欄。筆記存的是 fact id，畫面上是句子。對質失敗的 `crack_text` 不是 fact id，那一列的 id 是空字串。
+- 信任起點 `TRUST_START` 20。送麵包 +15（一份麵包 20→35，不夠看信任 40 的事實），其他給予 +6，每輪對話最多再 +10（每次 +2）。對方飽足低於 `NEED_HUNGRY` 30 時信任 -20。案件要能在信任 40 以內解完（`TRUST_SOLVE_MAX`）。
+- 允許清單：這位居民持有、有效信任夠、前置證據已在筆記、且不是公開事實。先依 `requires_trust` 由低到高排，再切到最多 8 條。公開事實不進個人允許清單，但 `public_brief` 會進 prompt。
+- Prompt 的使用者訊息以「今天鎮上的事：{public_brief}」開頭。`kind: truth` 放在「你知道、可以說的事」，`kind: lie` 放在「你要堅持的說法」。每條用 `say_text`（沒有才用 `text`），並附標籤。系統要求第一人稱說謊、不編允許清單以外的細節、只答被問到的事。模型回傳的 `revealed_fact_ids` 先和允許清單交集，寫進筆記的是事實原文。允許清單是空的時，schema 的 `maxItems` 是 0。被丟掉的 id 只記一筆 warning。
+
+### 對質、八卦、避開（PR3）
+
+- `present_evidence` 的 `target` 是居民，`fact_id` 必須已在這位玩家的筆記。兩人要在同一地點，對方不能在走路或倒下。對話框沒開、或框裡那位不在面前，客戶端的「出示」是停用的。送給的是對話框綁定的那位，不是畫面上第一個掃到的人。
+- `rules` 在檢查筆記之前就回 `npc_unavailable`，畫面上是「他好像沒空理你。」，所以不會洩漏筆記裡有沒有那條。
+- 出示的事實若對上對方持有謊言的 `contradicts`，該謊的 `truth_id` 在這回合追加進允許清單，加在 8 條上限之後，不會被切掉。Prompt 在謊言旁邊加「玩家拿出的證據」。系統補一句：證據矛盾時可以改口承認那些 truth id，或閃躲，但不能否認證據本身。模型若回了 truth id，筆記寫事實原文並保留模型回覆。沒回就寫 `crack_text`，回覆改成 `CONFRONT_CRACK_REPLY`。對不上的事實就是普通對話，不額外解鎖。筆記因此變多時，客戶端播既有的給予音效；承認與 crack 走同一條，不分開。
+- 玩家與居民 X 的這一輪若 X 實際交回了事實，那些事實的標籤記在 X 對這位玩家的紀錄上，來源是 X。什麼都沒交回就不記。自己交回的標籤不會讓自己開始避開。
+- `asked_tags` 與 `heard_tags` 的葉子是 `dict[tag, set[origin_resident_id]]`。兩位居民在同一地點、都 idle，每 `GOSSIP_INTERVAL_MINUTES` 20 遊戲分鐘互相複製「哪位玩家問過哪些標籤」。不呼叫模型。複製前先留下來源快照。嚇到人只看來源裡除了接收者自己以外還有別人、而且標籤打中這位犯人持有謊言的敏感標籤。只有犯人自己的來源不會避開；同一條標籤只要還有別人的來源就會避開。Prompt 用的仍是標籤清單（「有人問過這類事」），不帶來源。
+- 避開持續 `CULPRIT_AVOID_MINUTES` 60 遊戲分鐘，時間到就解除。期間下一個移動會改寫，避免停在那位玩家所在的地點；家與 `WORK_PLACES`（Mina、Alex 是咖啡廳與辦公室，Rin 是圖書館）仍可去。避開時 prompt 在歷史前插入「你最近在躲這位玩家」。出示不被避開擋住。避開與八卦用 token 當鍵，不用連線上的 player id。
+
+## 1.2 rules 與 llm 差在哪
+
+兩邊共用同一個時鐘、同一套案件、同一份信任與筆記。時鐘預設每真實秒 1 遊戲分鐘，整天都會走完，沒有鎮民大會。
+
+| | `rules`（預設，正式站現在就是這個） | `llm` |
+| --- | --- | --- |
+| 居民 | Mina、Alex，行程表在 `fake_agent.py` | Mina、Alex、Rin。Rin 只在這個模式出現 |
+| 決策 | `tick()` 內：倒下 → 手上有食物且飢餓低於門檻 → 否則行程。接著移動、需求、時鐘 | 另一個 async worker 呼叫 Ollama。`tick()` 只套用已經回來的決定，不把模型呼叫算進這一秒。倒下時不採用模型的移動 |
+| `talk` / `present_evidence` | 立刻 `npc_unavailable`，不進佇列、不呼叫模型、不記標籤、不解鎖事實 | 進對話佇列，玩家工作優先。模型只負責說法，事實只能從允許清單來 |
+| 八卦與避開 | 函式仍會跑，但沒有成功的對話就沒有標籤，避開不會開始 | 標籤會記、會傳、會改寫犯人的下一步 |
+| 事件 | `left` / `entered` 與物品事件 | 另外有 `said`、`thought`，內容先轉繁體 |
+| 測試 | `tests/conftest.py` 把 `BRAIN_MODE` 設成 `rules` | 個別測試再改成 `llm` |
+
+## 1.3 `config.py` 的名稱與預設
+
+模擬數字都在 `backend/app/config.py`。下面是 main 上的值。環境變數有寫出來的才會蓋過預設；沒寫的就是常數。
+
+時鐘與模式：
+
+| 名稱 | 預設 |
+| --- | --- |
+| `SIMULATION_TICK_SECONDS` | `1.0` |
+| `GAME_MINUTES_PER_TICK` | `1`（舊常數；實際速度看下面的函式） |
+| `game_minutes_per_real_second()` | 環境變數 `GAME_MINUTES_PER_REAL_SECOND`。空白、非整數或 ≤ 0 都回 `1.0`。正數才採用。main 的程式預設是 1.0 |
+| `SIMULATION_LOOP_ENABLED` | `True`（測試會關掉） |
+| `INITIAL_DAY` / `INITIAL_TIME` | `1` / `"08:00"` |
+| `current_brain_mode()` | 環境變數 `BRAIN_MODE`，只接受 `rules` 或 `llm`，其他回到 `rules` |
+| `current_llm_think()` | 環境變數 `LLM_THINK` 為 `1` / `true` / `yes` / `on` 才開，否則關 |
+| `STATIC_WEB_DIR` | 環境變數，空字串表示只提供 API |
+
+謎題與對話（PR1–PR3 加的）：
+
+| 名稱 | 預設 |
+| --- | --- |
+| `PLAYER_TOKEN_BYTES` | `32`（`token_urlsafe`，格式 `^[A-Za-z0-9_-]{43}$`） |
+| `SHOW_PRODUCED_IN_EVENT_LOG` | `False` |
+| `TALK_LOG_LIMIT` | `200` |
+| `DOSSIER_LIMIT` | `500` |
+| `TRUST_START` | `20` |
+| `TRUST_GIFT_BREAD` | `15` |
+| `TRUST_GIFT_OTHER` | `6` |
+| `TRUST_TALK` | `2` |
+| `TRUST_TALK_CAP_PER_ROUND` | `10` |
+| `TRUST_HUNGER_PENALTY` | `20` |
+| `TRUST_SOLVE_MAX` | `40` |
+| `GOSSIP_INTERVAL_MINUTES` | `20` |
+| `CULPRIT_AVOID_MINUTES` | `60` |
+| `CONFRONT_CRACK_REPLY` | `……這句我沒辦法再照原樣說。` |
+| `WORK_PLACES` | mina/alex：`cafe`、`office`；rin：`library` |
+| `LLM_QUEUE_MAX` | `8`（不含正在跑的那筆） |
+| `DIALOGUE_TIMEOUT_SECONDS` | `20.0` |
+| `DIALOGUE_MAX_QUEUE_WAIT_SECONDS` | `25.0` |
+| `DIALOGUE_PARSE_RETRIES` | `1`（只重試 JSON） |
+| `DIALOGUE_FALLBACK_REPLY` | `……我現在不太想說。` |
+| `DIALOGUE_MEMORY_TURNS` | `6` |
+| `DIALOGUE_MAX_FACTS_IN_PROMPT` | `8` |
+| `DIALOGUE_REPLY_MAX_CHARS` | `80` |
+| `TALK_MAX_CHARS` | `200` |
+| `TALK_MIN_INTERVAL_SECONDS` | `8.0` |
+| `TALK_MAX_PER_MINUTE` | `6` |
+| `TALK_MAX_PER_ROUND` | `40` |
+| `TALK_BLOCK_SUBSTRINGS` | 兒童性剝削相關字串，命中就拒 |
+
+移動、需求、物品：
+
+| 名稱 | 預設 |
+| --- | --- |
+| `AGENT_SPEED_PER_TICK` | `50.0` |
+| `ARRIVAL_DISTANCE_THRESHOLD` | `10.0` |
+| `MAX_WORLD_EVENTS` | `50` |
+| `NEED_MAX` | `100.0` |
+| `NEED_START_ENERGY` / `FULLNESS` / `SOCIAL` | `80.0` / `70.0` / `65.0` |
+| `ENERGY_DECAY_PER_MINUTE` | `0.05` |
+| `FULLNESS_DECAY_PER_MINUTE` | `0.08` |
+| `SOCIAL_DECAY_PER_MINUTE` | `0.04` |
+| `SOCIAL_COMPANY_PER_MINUTE` | `0.04` |
+| `EAT_FULLNESS_RESTORE` | `35.0` |
+| `CAFE_HUNGER_RESTORE_PER_MINUTE` | `0.12` |
+| `HOME_ENERGY_RESTORE_PER_MINUTE` | `0.10` |
+| `COLLAPSE_NEED` | `0.0`（線上的 hunger 是飽足；飽足或體力 ≤ 0 就是倒下） |
+| `BREAD_RESPAWN_MINUTES` | `20` |
+| `BREAD_STOCK_MAX` | `4` |
+| `FOOD_ITEMS` | `bread` |
+| `TOOL_IDS` / `PARK_TOOL_ID` / `PARK_PRODUCT_ID` | `watering_can` / `watering_can` / `wood` |
+| `PLAYER_ENABLED` | `True` |
+| `INTENT_RATE_LIMIT_PER_SEC` | `5` |
+| `INTENT_MAX_BYTES` | `4096` |
+| `SLEEP_ENERGY_PER_MINUTE` / `REST_ENERGY_PER_MINUTE` | `0.25` / `0.08` |
+| `TALK_SOCIAL_RESTORE` | `12.0` |
+| `NEED_TIRED` / `NEED_EXHAUSTED` | `55.0` / `30.0` |
+| `NEED_PECKISH` / `NEED_HUNGRY` | `55.0` / `30.0`（`HUNGER_ACTION_THRESHOLD` 等於 `NEED_HUNGRY`） |
+| `NEED_LONELY_HINT` / `NEED_LONELY` | `55.0` / `30.0` |
+| `SLEEP_HOUR` / `WAKE_HOUR` | `22` / `7` |
+
+模型路徑（只有 `llm` 會用到）：
+
+| 名稱 | 預設 |
+| --- | --- |
+| `DEFAULT_OLLAMA_URL` | `http://127.0.0.1:11434` |
+| `DEFAULT_LLM_MODEL` | `qwen3:14b` |
+| `DEFAULT_LLM_TIMEOUT_SECONDS` | `60.0` |
+| `LLM_TEMPERATURE` | `0.8` |
+| `LLM_IDLE_DECISION_MINUTES` | `15` |
+| `LLM_IDLE_DECISION_MINUTES_BUSY` | `45` |
+| `LLM_DECISION_MAX_PER_ROUND` | `8` |
+| `LLM_MAX_CONSECUTIVE_DIALOGUE` | `4` |
+| `LLM_DIALOGUE_COOLDOWN_MINUTES` | `30` |
+| `LLM_RECENT_SAY_LIMIT` / `LLM_RECENT_SAY_PROMPT_LIMIT` | `5` / `3` |
+| `LLM_RECENT_THOUGHT_LIMIT` | `3` |
+| `LLM_SAY_SIMILARITY` / `LLM_THOUGHT_SIMILARITY` | `0.8` / `0.9` |
+| `LLM_MIN_STAY_MINUTES` | `20` |
+| `LLM_UNANSWERED_MINUTES` | `30` |
+| `LLM_MEMORY_PROMPT_LIMIT` / `LLM_MEMORY_STORE_LIMIT` | `10` / `50` |
+| `LLM_BACKGROUND_TIMEOUT_SECONDS` | `20.0` |
+| `PLAN_MIN_ITEMS` / `PLAN_MAX_ITEMS` | `4` / `6` |
+| `REVIEW_HISTORY_DAYS` | `3` |
+| `EATING_ACTIVITIES` | `cook`、`order_coffee`、`shop` |
+| `RESTING_ACTIVITIES` | `rest` |
+| `SLEEPING_ACTIVITIES` | `sleep` |
+| `ACTIVITY_MINUTES` | 見 `config.py` 的字典（例如 `order_coffee` 10、`sleep` 60） |
+| `VERSION` / `SERVICE_NAME` | `0.1.0` / `BI_Town` |
 
 ## 2. 目前架構
 
@@ -31,10 +183,10 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
 - WebSocket 是雙向的。連線會生成 `player_<conn_id>`，斷線就從世界上移除。私人進度掛在伺服器發的 `player_token` 上。客戶端可送 `intent`，伺服器回 `intent_result` 後立刻廣播變動。見 `docs/ADR/0005-bidirectional-websocket.md`。
 - WebSocket 訊息（`backend/app/models/schemas.py`）：
   - `session`：連線後的第一則，帶伺服器發的 `player_token`。
-  - `world_snapshot`：接著整包狀態（day、time、agents、events、`you`、`dialogue_history`、`notice`、`notes`）。`dialogue_history` 是這個 token 跟每位居民最近幾輪的私訊。`notice` 是廣場公告，`notes` 是這個 token 的筆記句子。按 N 打開筆記面板，不佔快捷欄。
+  - `world_snapshot`：接著整包狀態（day、time、agents、events、`you`、`dialogue_history`、`notice`、`notes`、`note_ids`）。`dialogue_history` 是這個 token 跟每位居民最近幾輪的私訊。`notice` 是廣場公告。`notes` 是句子，`note_ids` 是對上的 fact id（crack 那列是空字串）。按 N 打開筆記面板，不佔快捷欄。
   - `agent_update`：每個 tick 都送，附上 day 與 time。`agents` 只列本 tick 有移動、改狀態，或需求整數有變的人，可以是空陣列。需求只在整數變化時放進該 agent，並且是整數。`removed` 只在有人斷線時出現。
   - `world_event`：`left` / `entered`，以及 `ate` / `gave` / `picked_up` / `produced`（`item`，`gave` 另有 `target_agent_id`）。`llm` 模式另有 `said` 與 `thought`。句子由客戶端依 event type 組，伺服器不送現成句子。`said` / `thought` 的 content 在寫入前用 OpenCC `s2twp` 轉成繁體中文。`conversing` / `conversing_ended` 不含對白。
-  - `intent` / `intent_result`：見 ADR 0005。`talk` 受理後另有單播的 `dialogue_result`（只有發問的那個連線看得到回覆）。
+  - `intent` / `intent_result`：見 ADR 0005。`talk` 與 `present_evidence` 另有單播的 `dialogue_result`（只有那個連線看得到回覆，並帶 `note_ids`）。`rules` 這兩種都是 `npc_unavailable`。
 - HTTP API（prefix `/api`）：`GET /health`、`GET /world`、`GET /agents`、`GET /events`。`/health` 帶 `Cache-Control: no-store`。`git_commit` 來自映像建置參數，`deployed_at` 來自容器建立時的環境變數；沒設定時是 `unknown`。Godot 殼檔（`/`、`index.html`、`index.js`、`index.wasm`、`index.pck`、`build_info.json`）回 `Cache-Control: no-cache`，並用 ETag 回 304。
 - Web export 的 HUD 向 `/build_info.json` 讀前端 commit、向 `/api/health` 讀後端 commit。兩邊不同時，右側身分列用琥珀色。請求失敗只把缺的那側顯示成 `unknown`，遊戲繼續跑。CI 在 export 前把 `GITHUB_SHA` 寫進 `game/build_info.json`，export 後再複製到產物目錄。
 - Godot web export 由 backend 以靜態檔提供。`STATIC_WEB_DIR` 有值且目錄內有 `index.html` 才 mount 在 `/`。本機只跑 uvicorn、沒設這個變數時，只提供 API 與 WebSocket。
@@ -42,17 +194,22 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
 - Docker Compose 一份檔同時給本機與 staging。backend 把 host 的 `game/build/web` 唯讀掛進容器 `/app/web`。對外 port 綁 `127.0.0.1:${BI_TOWN_PORT:-8100}` → 容器 8000。
 - `cloudflared` 在 profile `tunnel`。本機 `docker compose up` 不會啟動它。Staging 用 `--profile tunnel`，token 來自 `deploy/.env` 的 `TUNNEL_TOKEN`。
 
-Mina 行程：08:00 cafe、09:00 office、12:00 cafe、13:00 office、18:00 park、20:00 home。
-Alex 行程：約晚 30 分鐘；12:00 去 park（Mina 是 cafe）。定義在 `backend/app/simulation/fake_agent.py`。
+Mina 行程（只在 `rules`）：08:00 cafe、09:00 office、12:00 cafe、13:00 office、18:00 park、20:00 home。
+Alex 行程：約晚 30 分鐘；12:00 去 park（Mina 是 cafe）。行程裡的 `home` 會解析成 `home_for` 的那一戶。定義在 `backend/app/simulation/fake_agent.py`。
 
-POI 座標（backend 與 Godot 必須一致）：
+POI 座標（`backend/app/simulation/poi.py`、`game/scripts/world.gd`、`game/scenes/world.tscn` 三處必須一致）：
 
 | id | 座標 |
 | --- | --- |
-| home | (100, 100) |
-| cafe | (400, 250) |
-| office | (700, 150) |
-| park | (500, 500) |
+| mina_home | (56, 96) |
+| alex_home | (168, 96) |
+| rin_home | (280, 96) |
+| cafe | (392, 96) |
+| store | (504, 96) |
+| office | (56, 144) |
+| library | (168, 144) |
+| plaza | (280, 192) |
+| park | (392, 320) |
 
 ## 3. 目錄結構
 
@@ -72,6 +229,7 @@ POI 座標（backend 與 Godot 必須一致）：
 | `simulation/job_queue.py` | 玩家對話優先於居民工作的單工佇列。 |
 | `simulation/fake_agent.py` | 行程表、朝目標移動、`left` / `entered`。無 LLM。 |
 | `simulation/poi.py` | POI id、名稱、座標。 |
+| `simulation/cases/` | 三個內建案件、載入與 BFS。`case.schema.json` 必須與 `schemas/case.schema.json` 逐字相同。 |
 | `simulation/needs.py` | 飢餓、體力、社交的每分鐘結算。 |
 | `simulation/loop.py` | async 迴圈。tick 後廣播。只在 `changed_agents` 非空時送 `agent_update`。 |
 | `websocket/endpoint.py` | `WS /ws`。先送 `session`，再送 `world_snapshot`，之後接受 `intent`。 |
@@ -81,15 +239,15 @@ POI 座標（backend 與 Godot 必須一致）：
 
 | 路徑 | 職責 |
 | --- | --- |
-| `requirements.txt` | fastapi、uvicorn、pydantic、pytest、httpx。 |
+| `requirements.txt` | fastapi、uvicorn、pydantic、pytest、httpx、opencc-python-reimplemented、jsonschema。 |
 | `pytest.ini` | `pythonpath = .`，`testpaths = tests`。 |
 | `Dockerfile` | `python:3.12-slim`，`uvicorn app.main:app --host 0.0.0.0 --port 8000`。 |
-| `tests/conftest.py` | 關閉模擬迴圈；每個測試重置 world 與 WebSocket 連線。 |
-| `tests/test_clock.py` | 時鐘進位與 `World.tick()` 跨日。 |
-| `tests/test_agents.py` | 行程與移動。 |
-| `tests/test_events.py` | `left` / `entered` 與事件上限。 |
-| `tests/test_api.py` | HTTP API。 |
-| `tests/test_websocket.py` | snapshot 與廣播。 |
+| `tests/conftest.py` | 關閉模擬迴圈，`BRAIN_MODE=rules`；每個測試重置 world 與 WebSocket 連線。 |
+| `tests/test_dialogue.py` | 對話、token、佇列、注入包裝。 |
+| `tests/test_cases.py` | 案件輪替、信任、允許清單、schema 逐字相同。 |
+| `tests/test_confront.py` | 出示、八卦來源、避開。 |
+| `tests/ws_helpers.py` | 測試用 WebSocket。第一則是 `session`，不是 snapshot。 |
+| `tests/test_clock.py` 等 | 時鐘、行程、事件、HTTP、WebSocket、intent、需求、POI 同步、視覺 manifest、LLM。 |
 
 ### `game/`
 
@@ -238,7 +396,9 @@ TileMap 走 content id 這一輪不做。地面與建物仍由 `town_map.gd` 直
 
 先前三項畫面缺陷已修：全員 idle 時每個 tick 仍廣播 `agent_update`（時鐘繼續走）、HUD 把 day 轉成整數（不再顯示 `1.0`）、同座標的 NPC 只在 client 上錯開名字與對話泡泡，伺服器座標不變。
 
-預設大腦仍是 `rules`（Mina、Alex 的行程）。`BRAIN_MODE=llm` 是選用開關，居民換成 Mina、Alex、Rin，決策打部署主機上的 Ollama，且不阻塞 `tick()`。這不是 v0.2 roadmap 的第 4 步；那一步還沒做。正式站在主機 `deploy/.env` 設定後重新部署才會切換，見 `docs/DEPLOY.md`。未設定時 compose 仍是 `rules`。
+預設大腦仍是 `rules`。差異見第 1.2 節。正式站要改模式，由人改主機 `deploy/.env` 的 `BRAIN_MODE` 再重新部署，見 `docs/DEPLOY.md`。未設定時 compose 仍是 `rules`。
+
+謎題做到 PR3。PR #39（`feat/mystery-pr4`）還沒進 main，等玩法確認。下一輪不要從這份文件推斷該合併它，或該開下一號功能。
 
 ## 8. v0.2 roadmap
 
