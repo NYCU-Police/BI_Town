@@ -7,11 +7,6 @@ const COLORS := {
 	"alex": Color(0.35, 0.72, 0.78),
 	"rin": Color(0.95, 0.78, 0.35),
 }
-const SPRITES := {
-	"mina": preload("res://assets/characters/mina.png"),
-	"alex": preload("res://assets/characters/alex.png"),
-	"rin": preload("res://assets/characters/rin.png"),
-}
 const SPEECH_HOLD_SECONDS := 6.0
 const SPEECH_FADE_SECONDS := 0.4
 ## Top of the name plate, just above the 16px sprite. The speech tail sits above this.
@@ -37,6 +32,7 @@ var _has_server_position: bool = false
 var _speech_hold: float = 0.0
 var _speech_fade: float = 0.0
 var _agent_id: String = ""
+var _visual_id: String = ""
 var _slot_index: int = 0
 var _anim_time: float = 0.0
 
@@ -72,7 +68,9 @@ func update_from_server(data: Dictionary, snap: bool = false) -> void:
 	_label.text = str(data.get("name", _agent_id if not _agent_id.is_empty() else "NPC"))
 	var tint: Color = COLORS.get(_agent_id, Color(0.93, 0.93, 0.93))
 	_label.add_theme_color_override("font_color", tint)
-	_sprite.texture = SPRITES.get(_agent_id, SPRITES["mina"])
+	if _agent_id != _visual_id:
+		_visual_id = _agent_id
+		VisualBinder.apply(_sprite, self, _agent_id)
 	var task := str(data.get("activity", "")).strip_edges()
 	if task.is_empty():
 		_activity.visible = false

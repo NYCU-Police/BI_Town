@@ -1,0 +1,20 @@
+{
+  "content": {
+    "mina_home": {"x": 56, "y": 96, "art": ""},
+    "alex_home": {"x": 168, "y": 96, "art": ""},
+    "rin_home": {"x": 280, "y": 96, "art": ""},
+    "cafe": {"x": 392, "y": 96, "art": ""},
+    "store": {"x": 504, "y": 96, "art": ""},
+    "office": {"x": 56, "y": 144, "art": ""},
+    "library": {"x": 168, "y": 144, "art": ""},
+    "plaza": {"x": 280, "y": 192, "art": ""},
+    "park": {"x": 392, "y": 320, "art": ""},
+    "mina": {"art": "res://assets/characters/mina.png"},
+    "alex": {"art": "res://assets/characters/alex.png"},
+    "rin": {"art": "res://assets/characters/rin.png"},
+    "player": {"art": ""},
+    "bread": {"art": ""},
+    "wood": {"art": ""},
+    "watering_can": {"art": ""}
+  }
+}

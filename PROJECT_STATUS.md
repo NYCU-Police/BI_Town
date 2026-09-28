@@ -103,7 +103,9 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | `scripts/main.gd` | 把 WebSocket signal 接到 World 與 HUD。 |
 | `scripts/network_client.gd` | WebSocket client。桌面預設 `ws://127.0.0.1:8000/ws`。Web build 用頁面同源 `/ws`；分進程本機開發用 query `?ws=`。斷線後 2s 起、上限 30s 重連。 |
 | `scripts/world.gd` | 依 snapshot / agent_update 生成或更新 NPC。`_ready` 檢查場景 POI 座標是否與 backend 一致。 |
-| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色依 agent id（Mina 紅、Alex 青、Rin 金）。 |
+| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色依 agent id（Mina 紅、Alex 青、Rin 金）。外觀由 `VisualBinder` 依 content id 決定。 |
+| `scripts/visual_binder.gd` | 讀 `data/visual_manifest.json`。圖存在就用 nearest sprite；否則畫 ColorRect 與 content id。 |
+| `data/visual_manifest.json` | content id 對應的圖路徑與 POI 座標。 |
 | `scripts/hud.gd` | 時鐘、連線、人數、事件文字。時鐘只在 snapshot 與 agent_update 更新。 |
 | `scripts/event_log.gd` | 事件日誌，最多 20 行。 |
 
