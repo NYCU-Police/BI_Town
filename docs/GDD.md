@@ -514,7 +514,10 @@ sequenceDiagram
 - 該玩家對他的有效信任 ≥ `requires_trust`。
 - `requires_evidence` 已在該玩家筆記裡。
 - 這一輪對質解鎖的 `truth_id`。
-- 公開事實不進個人提示。玩家已經在公告上看過。
+- 公開事實不進 `revealed_fact_ids`。玩家已經在公告上看過。user 訊息開頭仍放 `public_brief`，讓模型知道今天發生了什麼，但不能把它當成一條可交出的 id。
+- `holders` 非空的事實可以有選填的 `say_text`（第一人稱）。提示用 `say_text`，沒有才退回 `text`。筆記仍寫 `text`。
+- 提示把允許清單分成「你知道、可以說的事」（`kind` 為 truth）和「你要堅持的說法」（`kind` 為 lie）。清單外的事叫模型說不清楚，不要編。只回答玩家問到的事，每條附上 `tags`。
+- 允許清單超過 `DIALOGUE_MAX_FACTS_IN_PROMPT` 時，依 `requires_trust` 由低到高留下前面幾條。
 
 模型回傳：
 

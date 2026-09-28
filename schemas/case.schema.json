@@ -84,6 +84,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "text": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "say_text": { "type": "string", "minLength": 1, "maxLength": 80 },
         "public": { "type": "boolean" },
         "holders": {
           "type": "array",

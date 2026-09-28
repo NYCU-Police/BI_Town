@@ -52,6 +52,7 @@
     {
       "id": "mina_was_home",
       "text": "Mina 說七點她還在家，八點才往咖啡廳走。",
+      "say_text": "七點我還在家，八點才往咖啡廳走。",
       "public": false,
       "holders": [
         "mina"
@@ -67,6 +68,7 @@
     {
       "id": "alex_heard_brush",
       "text": "Alex 說 Rin 昨天抱怨 Mina 沒把她的話聽完。",
+      "say_text": "Rin 昨天抱怨 Mina 沒把她的話聽完。",
       "public": false,
       "holders": [
         "alex"
@@ -83,6 +85,7 @@
     {
       "id": "rin_was_library",
       "text": "Rin 說早上她一直在圖書館，沒去過廣場。",
+      "say_text": "早上我一直在圖書館，沒去過廣場。",
       "public": false,
       "holders": [
         "rin"
@@ -102,6 +105,7 @@
     {
       "id": "alex_saw_rin",
       "text": "七點五分，Alex 在廣場看見 Rin 站在公告欄前。",
+      "say_text": "七點五分，我在廣場看見 Rin 站在公告欄前。",
       "public": false,
       "holders": [
         "alex"
@@ -120,6 +124,7 @@
     {
       "id": "rin_at_board",
       "text": "Rin 承認七點她在公告欄前，不是一直待在圖書館。",
+      "say_text": "七點我在公告欄前，不是一直待在圖書館。",
       "public": false,
       "holders": [
         "rin"

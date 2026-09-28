@@ -52,6 +52,7 @@
     {
       "id": "letter_not_rin",
       "text": "Mina 說那封信的筆跡不是 Rin，她看過 Rin 的借書卡。",
+      "say_text": "那封信的筆跡不是 Rin，我看過她的借書卡。",
       "public": false,
       "holders": [
         "mina"
@@ -67,6 +68,7 @@
     {
       "id": "alex_wanted_notice",
       "text": "Rin 說 Alex 昨天抱怨 Mina 都只跟她說話。",
+      "say_text": "Alex 昨天抱怨 Mina 都只跟我說話。",
       "public": false,
       "holders": [
         "rin"
@@ -83,6 +85,7 @@
     {
       "id": "alex_no_letter",
       "text": "Alex 說他沒寫過信，早上也沒去辦公室。",
+      "say_text": "我沒寫過信，早上也沒去辦公室。",
       "public": false,
       "holders": [
         "alex"
@@ -103,6 +106,7 @@
     {
       "id": "rin_saw_alex_office",
       "text": "Rin 七點二十分看見 Alex 在辦公室門口停過。",
+      "say_text": "七點二十分我看見 Alex 在辦公室門口停過。",
       "public": false,
       "holders": [
         "rin"
@@ -121,6 +125,7 @@
     {
       "id": "alex_wrote",
       "text": "Alex 承認信是他從門縫塞進去的。",
+      "say_text": "信是我從門縫塞進去的。",
       "public": false,
       "holders": [
         "alex"

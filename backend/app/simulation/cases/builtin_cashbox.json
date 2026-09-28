@@ -59,6 +59,7 @@
     {
       "id": "mina_closed_full",
       "text": "Mina 說昨天打烊時錢盒是滿的，鎖只有打烊的人會碰。",
+      "say_text": "昨天打烊時錢盒是滿的，鎖只有打烊的人會碰。",
       "public": false,
       "holders": [
         "mina"
@@ -74,6 +75,7 @@
     {
       "id": "cash_taken",
       "text": "不見的是咖啡廳今天的開店金，不是別人寄放的東西。",
+      "say_text": "不見的是今天的開店金，不是別人寄放的東西。",
       "public": false,
       "holders": [
         "mina"
@@ -91,6 +93,7 @@
     {
       "id": "alex_owes",
       "text": "Alex 昨天跟 Mina 說他欠了一筆錢，今天早上之前得補上。",
+      "say_text": "Alex 昨天跟我說他欠了一筆錢，今天早上之前得補上。",
       "public": false,
       "holders": [
         "mina"
@@ -107,6 +110,7 @@
     {
       "id": "alex_was_home",
       "text": "Alex 說七點以前他一直在家裡睡覺。",
+      "say_text": "七點以前我一直在家睡覺。",
       "public": false,
       "holders": [
         "alex"
@@ -126,6 +130,7 @@
     {
       "id": "rin_saw_alex",
       "text": "早上七點十分，Rin 看見 Alex 從咖啡廳側門出來。",
+      "say_text": "早上七點十分，我看見 Alex 從咖啡廳側門出來。",
       "public": false,
       "holders": [
         "rin"
@@ -146,6 +151,7 @@
     {
       "id": "rin_alibi",
       "text": "Rin 七點半已經在圖書館排今天的書架。",
+      "say_text": "七點半我已經在圖書館排今天的書架。",
       "public": false,
       "holders": [
         "rin"
@@ -161,6 +167,7 @@
     {
       "id": "alex_left_home",
       "text": "Alex 承認他七點前就出了門，並沒有在睡覺。",
+      "say_text": "我七點前就出了門，並沒有在睡覺。",
       "public": false,
       "holders": [
         "alex"
