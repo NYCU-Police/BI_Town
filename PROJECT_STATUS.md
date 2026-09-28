@@ -97,15 +97,15 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 | `export_presets.cfg` | Web preset，輸出 `build/web/index.html`。 |
 | `serve_web.py` | 本機提供 web export，帶 COOP/COEP。預設 `127.0.0.1:8080`。 |
 | `scenes/main.tscn` | `Main` + `NetworkClient` + `World` + `HUD`。 |
-| `scenes/world.tscn` | 純色背景與四個 POI marker（ColorRect + Label）。 |
+| `scenes/world.tscn` | 地圖與 POI 位置節點。POI 外觀由 `VisualBinder` 畫，場景裡不放圖。 |
 | `scenes/npc.tscn` | NPC：16×16 像素人物（3 倍、nearest）、腳下陰影、圓角名字底牌。 |
 | `scenes/ui/hud.tscn` | 時鐘、連線狀態、agent 數、事件日誌。 |
 | `scripts/main.gd` | 把 WebSocket signal 接到 World 與 HUD。 |
 | `scripts/network_client.gd` | WebSocket client。桌面預設 `ws://127.0.0.1:8000/ws`。Web build 用頁面同源 `/ws`；分進程本機開發用 query `?ws=`。斷線後 2s 起、上限 30s 重連。 |
 | `scripts/world.gd` | 依 snapshot / agent_update 生成或更新 NPC。`_ready` 檢查場景 POI 座標是否與 backend 一致。 |
-| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色依 agent id（Mina 紅、Alex 青、Rin 金）。外觀由 `VisualBinder` 依 content id 決定。 |
-| `scripts/visual_binder.gd` | 讀 `data/visual_manifest.json`。圖存在就用 nearest sprite；否則畫 ColorRect 與 content id。 |
-| `data/visual_manifest.json` | content id 對應的圖路徑與 POI 座標。 |
+| `scripts/npc.gd` | 把座標 lerp 向 server 位置。停留時另加門口地面的顯示偏移，伺服器座標不變。走路上下彈、停留輕微起伏，依水平方向翻轉。名字顏色讀 manifest 的 `name_color`。外觀走 `agent.<id>`。 |
+| `scripts/visual_binder.gd` | 依 content id 找 `packs/user` 再 `packs/default`，都沒有就畫 placeholder。manifest 讀不到時 `push_error`。 |
+| `data/visual_manifest.json` | 外觀設定（kind、category、footprint、origin、顏色）。不存座標，也不存檔案路徑。 |
 | `scripts/hud.gd` | 時鐘、連線、人數、事件文字。時鐘只在 snapshot 與 agent_update 更新。 |
 | `scripts/event_log.gd` | 事件日誌，最多 20 行。 |
 
@@ -224,6 +224,8 @@ docker compose --profile tunnel up -d --build
 
 ## 7. 已知待辦
 
+TileMap 走 content id 這一輪不做。地面與建物仍由 `town_map.gd` 直接鋪格，沒有接到 `visual_manifest.json`。
+
 先前三項畫面缺陷已修：全員 idle 時每個 tick 仍廣播 `agent_update`（時鐘繼續走）、HUD 把 day 轉成整數（不再顯示 `1.0`）、同座標的 NPC 只在 client 上錯開名字與對話泡泡，伺服器座標不變。
 
 預設大腦仍是 `rules`（Mina、Alex 的行程）。`BRAIN_MODE=llm` 是選用開關，居民換成 Mina、Alex、Rin，決策打部署主機上的 Ollama，且不阻塞 `tick()`。這不是 v0.2 roadmap 的第 4 步；那一步還沒做。正式站在主機 `deploy/.env` 設定後重新部署才會切換，見 `docs/DEPLOY.md`。未設定時 compose 仍是 `rules`。
@@ -232,7 +234,7 @@ docker compose --profile tunnel up -d --build
 
 順序固定，LLM 排在最後：
 
-1. 視覺基礎：tilemap 與 NPC sprite 已取代 ColorRect 方塊與純色背景。角色是 Kenney Roguelike Characters（CC0）的 16×16 裁切，見 `game/assets/characters/`。
+1. 視覺基礎：tilemap 與 NPC sprite 已取代 ColorRect 方塊與純色背景。角色是 Kenney Roguelike Characters（CC0）的 16×16 裁切，見 `game/assets/packs/default/actors/`。TileMap 本身還沒改走 content id。
 2. Needs 系統。
 3. NPC 狀態圖示。
 4. 之後才做產品意義上的 LLM 居民。目前的 `BRAIN_MODE=llm` 只是可選的本機路徑，預設仍是 rules，不算這一步完成。

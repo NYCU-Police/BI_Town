@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bsockkjmg6mh1"
-path="res://.godot/imported/rin.png-ff423dd26af437c6542896462c626dd6.ctex"
+uid="uid://wbdn4jjdyl3q"
+path="res://.godot/imported/mina.png-48e89ebe2741686dd6dd511962962a0b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/characters/rin.png"
-dest_files=["res://.godot/imported/rin.png-ff423dd26af437c6542896462c626dd6.ctex"]
+source_file="res://assets/packs/default/actors/mina.png"
+dest_files=["res://.godot/imported/mina.png-48e89ebe2741686dd6dd511962962a0b.ctex"]
 
 [params]
 
