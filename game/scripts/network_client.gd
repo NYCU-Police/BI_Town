@@ -5,6 +5,7 @@ signal agent_updated(data: Dictionary)
 signal event_received(data: Dictionary)
 signal connection_changed(online: bool)
 signal intent_resolved(client_seq: int, ok: bool, reason: String)
+signal dialogue_received(data: Dictionary)
 
 ## Desktop default. Web builds resolve the URL in _ready().
 @export var websocket_url: String = "ws://127.0.0.1:8000/ws"
@@ -18,10 +19,13 @@ var _reconnect_delay: float = RECONNECT_INITIAL_SECONDS
 var _reconnect_timer: float = 0.0
 var _online: bool = false
 var _client_seq: int = 0
+var _player_token: String = ""
+const _TOKEN_KEY := "bi_town_player_token"
 
 
 func _ready() -> void:
-	_resolved_url = _resolve_websocket_url()
+	_player_token = _load_token()
+	_resolved_url = _with_token(_resolve_websocket_url(), _player_token)
 	print("WebSocket URL: ", _resolved_url)
 	_connect_now()
 
@@ -90,10 +94,10 @@ func _read_messages() -> void:
 		_handle_text(text)
 
 
-func send_intent(intent: Dictionary) -> void:
+func send_intent(intent: Dictionary) -> int:
 	if _socket == null or _socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		push_warning("WebSocket is not open; intent was not sent")
-		return
+		return 0
 	_client_seq += 1
 	var payload: Dictionary = {
 		"type": "intent",
@@ -103,6 +107,8 @@ func send_intent(intent: Dictionary) -> void:
 	var err := _socket.send_text(JSON.stringify(payload))
 	if err != OK:
 		push_error("WebSocket send failed: %s" % error_string(err))
+		return 0
+	return _client_seq
 
 
 func _handle_text(text: String) -> void:
@@ -123,6 +129,12 @@ func _handle_text(text: String) -> void:
 			bool(message.get("ok", false)),
 			"" if reason == null else str(reason),
 		)
+		return
+	if msg_type == "session":
+		_remember_token(str(message.get("player_token", "")))
+		return
+	if msg_type == "dialogue_result":
+		dialogue_received.emit(message)
 		return
 	var raw_data: Variant = message.get("data", {})
 	if typeof(raw_data) != TYPE_DICTIONARY:
@@ -161,3 +173,39 @@ func _set_online(value: bool) -> void:
 		return
 	_online = value
 	connection_changed.emit(_online)
+
+
+func _with_token(url: String, token: String) -> String:
+	if token.is_empty():
+		return url
+	var joiner := "&" if url.contains("?") else "?"
+	return "%s%splayer_token=%s" % [url, joiner, token.uri_encode()]
+
+
+func _load_token() -> String:
+	if OS.has_feature("web"):
+		var raw: Variant = JavaScriptBridge.eval(
+			"localStorage.getItem('%s') || ''" % _TOKEN_KEY
+		)
+		if raw == null:
+			return ""
+		return str(raw).strip_edges()
+	var cfg := ConfigFile.new()
+	if cfg.load("user://player_token.cfg") != OK:
+		return ""
+	return str(cfg.get_value("player", "token", "")).strip_edges()
+
+
+func _remember_token(token: String) -> void:
+	if token.is_empty() or token == _player_token:
+		return
+	_player_token = token
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval(
+			"localStorage.setItem('%s', %s)" % [_TOKEN_KEY, JSON.stringify(token)]
+		)
+	else:
+		var cfg := ConfigFile.new()
+		cfg.set_value("player", "token", token)
+		cfg.save("user://player_token.cfg")
+	_resolved_url = _with_token(_resolve_websocket_url(), token)

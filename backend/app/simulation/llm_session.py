@@ -30,12 +30,16 @@ from app.config import (
     GAME_MINUTES_PER_TICK,
     INITIAL_DAY,
     INITIAL_TIME,
+    LLM_BACKGROUND_TIMEOUT_SECONDS,
+    LLM_DECISION_MAX_PER_ROUND,
     LLM_DIALOGUE_COOLDOWN_MINUTES,
     LLM_IDLE_DECISION_MINUTES,
+    LLM_IDLE_DECISION_MINUTES_BUSY,
     LLM_MAX_CONSECUTIVE_DIALOGUE,
     LLM_MEMORY_PROMPT_LIMIT,
     LLM_MEMORY_STORE_LIMIT,
     LLM_MIN_STAY_MINUTES,
+    LLM_QUEUE_MAX,
     LLM_RECENT_SAY_LIMIT,
     LLM_RECENT_SAY_PROMPT_LIMIT,
     LLM_RECENT_THOUGHT_LIMIT,
@@ -66,6 +70,7 @@ from app.config import (
 from app.models.schemas import Agent, Position, WorldEvent
 from app.simulation.clock import advance_clock
 from app.simulation.fake_agent import move_agent
+from app.simulation.job_queue import JobQueue
 from app.simulation.needs import NeedValues, is_collapsed, tick_need_values
 from app.simulation.poi import POIS, activities_for, home_for
 
@@ -876,6 +881,10 @@ class DecisionJob:
     partner: str | None = None
     kind: str = "decision"
     time_str: str = ""
+    token: str = ""
+    client_seq: int = 0
+    player_id: str = ""
+    enqueued_at: float = 0.0
 
 
 @dataclass
@@ -891,7 +900,7 @@ class LlmSession:
         self.by_id = {resident.id: resident for resident in self.residents}
         self.dialogue = DialogueTracker()
         self.opening = True
-        self.queue: asyncio.Queue[DecisionJob] = asyncio.Queue()
+        self.queue = JobQueue(LLM_QUEUE_MAX)
         self.inbox: list[ReadyDecision] = []
         self.waiting: set[str] = set()
         self.planning: set[str] = set()
@@ -900,6 +909,11 @@ class LlmSession:
         self.day = INITIAL_DAY
         self.plans_due = False
         self._extra_places: list[tuple[str, str]] = []
+        self.players_present = False
+        self.player_talk_running = False
+        self.decision_counts: dict[str, int] = {}
+        self.talk_world: Any = None
+        self.talk_log: list[dict[str, Any]] = []
 
     def advance(
         self,
@@ -941,6 +955,17 @@ class LlmSession:
                 resident.idle_minutes += 1
         self.dialogue.tick_cooldowns()
         self.now_minutes += GAME_MINUTES_PER_TICK
+        return events, changed
+
+    def step_motion(
+        self,
+        time_str: str,
+    ) -> tuple[list[WorldEvent], set[str]]:
+        """Walk only. Needs and the decision clock stay on whole minutes."""
+        events: list[WorldEvent] = []
+        changed: set[str] = set()
+        changed.update(self._stop_collapsed())
+        self._step(time_str, events, changed)
         return events, changed
 
     def _apply(
@@ -1258,8 +1283,7 @@ class LlmSession:
         if actor.state == "sleeping":
             return
         actor.review_pending = True
-        self.waiting.add(actor.id)
-        self.queue.put_nowait(
+        queued = self._put_resident(
             DecisionJob(
                 agent_id=actor.id,
                 messages=self._review_messages(actor, time_str),
@@ -1267,6 +1291,8 @@ class LlmSession:
                 time_str=time_str,
             )
         )
+        if queued:
+            self.waiting.add(actor.id)
 
     def _review_messages(
         self,
@@ -1292,7 +1318,7 @@ class LlmSession:
         if actor.id in self.planning or actor.state == "sleeping":
             return
         self.planning.add(actor.id)
-        self.queue.put_nowait(
+        self._put_resident(
             DecisionJob(
                 agent_id=actor.id,
                 messages=self._plan_messages(actor, time_str),
@@ -1416,10 +1442,17 @@ class LlmSession:
             return
         forced: set[str] = forced_ids
         forced.update(arrivals)
+        idle_after = (
+            LLM_IDLE_DECISION_MINUTES_BUSY
+            if self.players_present
+            else LLM_IDLE_DECISION_MINUTES
+        )
+        player_busy = self.player_talk_running or self.queue.player_count() > 0
         for resident in self.residents:
             if (
                 resident.state == "idle"
-                and resident.idle_minutes >= LLM_IDLE_DECISION_MINUTES
+                and resident.idle_minutes >= idle_after
+                and not player_busy
             ):
                 forced.add(resident.id)
         for resident_id, speaker_id in reply_now.items():
@@ -1454,12 +1487,16 @@ class LlmSession:
             return
         if resident.state == "doing" and not is_reply:
             return
+        if (
+            self.players_present
+            and self.decision_counts.get(resident.id, 0) >= LLM_DECISION_MAX_PER_ROUND
+        ):
+            return
         if resident.id in self.waiting:
             if is_reply and partner:
                 self.dialogue.reply_next[resident.id] = partner
             return
-        self.waiting.add(resident.id)
-        self.queue.put_nowait(
+        queued = self._put_resident(
             DecisionJob(
                 agent_id=resident.id,
                 messages=build_messages(
@@ -1472,6 +1509,29 @@ class LlmSession:
                 partner=partner,
             )
         )
+        if not queued:
+            return
+        self.waiting.add(resident.id)
+        if self.players_present:
+            count = self.decision_counts.get(resident.id, 0)
+            self.decision_counts[resident.id] = count + 1
+
+    def _put_resident(self, job: DecisionJob) -> bool:
+        if self.queue.put_nowait(job):
+            return True
+        self.drop_resident_job(job)
+        return False
+
+    def drop_resident_job(self, job: DecisionJob) -> None:
+        """A resident job that will not run becomes a quiet stay."""
+        self.waiting.discard(job.agent_id)
+        self.planning.discard(job.agent_id)
+        actor = self.by_id.get(job.agent_id)
+        if actor is not None:
+            actor.review_pending = False
+        if job.kind != "decision":
+            return
+        self.inbox.append(ReadyDecision(job=job, decision=_stay()))
 
 
 def _stay() -> Decision:
@@ -1601,6 +1661,24 @@ async def _complete_review(
 
 
 async def complete_job(session: LlmSession, job: DecisionJob) -> None:
+    if job.kind == "talk":
+        from app.simulation.player_talk import finish_player_talk
+
+        await finish_player_talk(session, job)
+        return
+    if session.players_present:
+        try:
+            await asyncio.wait_for(
+                _complete_resident(session, job),
+                LLM_BACKGROUND_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            session.drop_resident_job(job)
+        return
+    await _complete_resident(session, job)
+
+
+async def _complete_resident(session: LlmSession, job: DecisionJob) -> None:
     decider = session.decider
     if decider is None:
         decider = OllamaDecider.from_env()

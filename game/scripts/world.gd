@@ -197,6 +197,15 @@ func show_speech(agent_id: String, content: String) -> void:
 		npc.show_speech(content)
 
 
+func show_conversing(player_id: String, resident_id: String, active: bool) -> void:
+	for agent_id in [player_id, resident_id]:
+		if not _npcs.has(agent_id):
+			continue
+		var npc: Node = _npcs[agent_id]
+		if npc.has_method("set_conversing"):
+			npc.set_conversing(active)
+
+
 func present_event(data: Dictionary) -> void:
 	var agent_id := str(data.get("agent_id", ""))
 	if not _npcs.has(agent_id):

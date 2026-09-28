@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+signal talk_submitted(text: String)
+
 const _MATCH_COLOR := Color(0.65, 0.67, 0.64)
 const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
 ## Same line as the server's hungry / exhausted / lonely marks.
@@ -29,6 +31,14 @@ var _slots: Array[Panel] = []
 
 var _agent_names: Dictionary = {}
 var _web_health_callback: Variant
+var _dialogue_log: RichTextLabel
+var _dialogue_status: Label
+var _dialogue_line: LineEdit
+var _talk_lines: PackedStringArray = PackedStringArray()
+var _waiting := false
+var _wait_name := ""
+var _dot_phase := 0
+var _dot_accum := 0.0
 
 
 func _ready() -> void:
@@ -49,6 +59,7 @@ func _ready() -> void:
 		{"content_id": "", "count": 0, "selected": true},
 	])
 	_request_health()
+	_build_dialogue()
 
 
 func apply_snapshot(data: Dictionary) -> void:
@@ -400,6 +411,9 @@ const _MOVE_COLOR := "#7a7a76"
 
 
 func _append_event(data: Dictionary) -> void:
+	var action := str(data.get("event", ""))
+	if action == "produced" or action == "conversing_ended":
+		return
 	if not _event_log.has_method("add_event"):
 		push_error("EventLog is missing add_event()")
 		return
@@ -442,6 +456,7 @@ const _EVENT_TEMPLATES := {
 	"produced": "{time} {name} 做出 {item}",
 	"said": "{time} {name}{arrow}\n{quote}",
 	"thought": "{time} {name}（想）\n{quote}",
+	"conversing": "{time} {name} 正在和 {target} 說話",
 }
 const _ITEM_NAMES := {
 	"bread": "麵包",
@@ -454,7 +469,9 @@ func _format_event(data: Dictionary) -> String:
 	var action := str(data.get("event", ""))
 	var template := str(_EVENT_TEMPLATES.get(action, "{time} {name} {action}"))
 	var move := action in ["left", "entered", "activity", "ate", "gave", "picked_up", "produced"]
-	var color := _MOVE_COLOR if move else (_THOUGHT_COLOR if action == "thought" else _SAID_COLOR)
+	var color := _MOVE_COLOR if (move or action == "conversing") else (
+		_THOUGHT_COLOR if action == "thought" else _SAID_COLOR
+	)
 	var target_id := str(data.get("target_agent_id", ""))
 	var arrow := ""
 	if action == "said" and not target_id.is_empty():
@@ -493,3 +510,117 @@ func _join_header(parts: Array) -> String:
 			glued += _tone("\u00A0", _SAID_COLOR)
 		glued += parts[index]
 	return glued
+
+
+func _build_dialogue() -> void:
+	var panel := Panel.new()
+	panel.name = "Dialogue"
+	panel.anchor_left = 0.0
+	panel.anchor_top = 1.0
+	panel.anchor_right = 0.0
+	panel.anchor_bottom = 1.0
+	panel.offset_left = 16.0
+	panel.offset_top = -360.0
+	panel.offset_right = 480.0
+	panel.offset_bottom = -168.0
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#1c1916")
+	style.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", style)
+	add_child(panel)
+
+	_dialogue_log = RichTextLabel.new()
+	_dialogue_log.bbcode_enabled = false
+	_dialogue_log.scroll_following = true
+	_dialogue_log.anchor_right = 1.0
+	_dialogue_log.anchor_bottom = 1.0
+	_dialogue_log.offset_left = 10.0
+	_dialogue_log.offset_top = 8.0
+	_dialogue_log.offset_right = -10.0
+	_dialogue_log.offset_bottom = -72.0
+	_dialogue_log.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dialogue_log.add_theme_color_override("default_color", Color("#f4f0e6"))
+	panel.add_child(_dialogue_log)
+
+	_dialogue_status = Label.new()
+	_dialogue_status.anchor_top = 1.0
+	_dialogue_status.anchor_right = 1.0
+	_dialogue_status.anchor_bottom = 1.0
+	_dialogue_status.offset_left = 10.0
+	_dialogue_status.offset_top = -68.0
+	_dialogue_status.offset_right = -10.0
+	_dialogue_status.offset_bottom = -44.0
+	_dialogue_status.add_theme_color_override("font_color", Color("#f4f0e6"))
+	panel.add_child(_dialogue_status)
+
+	_dialogue_line = LineEdit.new()
+	_dialogue_line.anchor_top = 1.0
+	_dialogue_line.anchor_right = 1.0
+	_dialogue_line.anchor_bottom = 1.0
+	_dialogue_line.offset_left = 10.0
+	_dialogue_line.offset_top = -40.0
+	_dialogue_line.offset_right = -10.0
+	_dialogue_line.offset_bottom = -8.0
+	_dialogue_line.placeholder_text = "點一位居民，再打字"
+	_dialogue_line.add_theme_color_override("font_color", Color("#f4f0e6"))
+	_dialogue_line.add_theme_color_override("font_placeholder_color", Color("#a39e94"))
+	_dialogue_line.text_submitted.connect(_on_dialogue_submitted)
+	panel.add_child(_dialogue_line)
+
+
+func _process(delta: float) -> void:
+	if not _waiting:
+		return
+	_dot_accum += delta
+	if _dot_accum < 0.4:
+		return
+	_dot_accum = 0.0
+	_dot_phase = (_dot_phase + 1) % 3
+	var marks := ["·", "··", "···"]
+	_dialogue_status.text = "%s想了想%s" % [_wait_name, marks[_dot_phase]]
+
+
+func focus_resident(agent_id: String, agent_name: String) -> void:
+	_agent_names[agent_id] = agent_name
+	_dialogue_line.placeholder_text = "跟%s說…" % agent_name
+	_dialogue_line.grab_focus()
+
+
+func note_player_line(text: String) -> void:
+	_talk_lines.append("你：%s" % text)
+	_refresh_dialogue()
+
+
+func start_waiting(agent_name: String) -> void:
+	_waiting = true
+	_wait_name = agent_name
+	_dot_phase = 0
+	_dot_accum = 0.0
+	_dialogue_status.text = "%s想了想·" % agent_name
+
+
+func stop_waiting() -> void:
+	_waiting = false
+	_dialogue_status.text = ""
+
+
+func show_private_reply(speaker_id: String, reply: String) -> void:
+	stop_waiting()
+	var agent_name := str(_agent_names.get(speaker_id, speaker_id))
+	_talk_lines.append("%s對你說：%s" % [agent_name, reply])
+	_refresh_dialogue()
+
+
+func _refresh_dialogue() -> void:
+	if _dialogue_log == null:
+		return
+	_dialogue_log.text = "\n".join(_talk_lines)
+
+
+func _on_dialogue_submitted(text: String) -> void:
+	var body := text.strip_edges()
+	_dialogue_line.text = ""
+	if body.is_empty():
+		return
+	talk_submitted.emit(body)

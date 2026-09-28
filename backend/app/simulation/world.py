@@ -18,6 +18,7 @@ from app.config import (
     PARK_TOOL_ID,
     TOOL_IDS,
     current_brain_mode,
+    game_minutes_per_real_second,
 )
 from app.models.schemas import (
     Agent,
@@ -62,6 +63,7 @@ class IntentResult:
     reason: str | None
     events: list[WorldEvent]
     changed_agents: list[Agent]
+    superseded_seq: int | None = None
 
 
 def _agent_at_home(agent_id: str, name: str) -> Agent:
@@ -103,9 +105,14 @@ class World:
         self.bodies: dict[str, Body] = {}
         self.bread_stock = BREAD_STOCK_MAX
         self._bread_elapsed = 0
+        self._minute_credit = 0.0
         self._sent_needs: dict[str, tuple[int, int, int]] = {}
+        self.dossiers: dict[str, object] = {}
+        self.player_tokens: dict[str, str] = {}
+        self.conversing: set[tuple[str, str]] = set()
         if mode == "llm":
             self.llm = LlmSession(decider)
+            self.llm.talk_world = self
             self.agents = {
                 resident.id: resident.as_agent() for resident in self.llm.residents
             }
@@ -156,6 +163,7 @@ class World:
         self.bodies[player_id] = _spawn_body()
         self.bodies[player_id].tools = TOOL_IDS
         self._sent_needs[player_id] = self._rounded(player_id)
+        self._sync_players_present()
         return self._view(agent, include_needs=True)
 
     def remove_player(self, player_id: str) -> bool:
@@ -164,15 +172,79 @@ class World:
         del self.agents[player_id]
         self.bodies.pop(player_id, None)
         self._sent_needs.pop(player_id, None)
+        self.player_tokens.pop(player_id, None)
+        self._sync_players_present()
         return True
 
     def tick(self) -> TickResult:
+        self._sync_players_present()
+        self._minute_credit += game_minutes_per_real_second()
+        if self._minute_credit < 1.0 - 1e-9:
+            return self._tick_motion()
+        results: list[TickResult] = []
+        while self._minute_credit >= 1.0 - 1e-9:
+            self._minute_credit -= 1.0
+            results.append(self._tick_minute())
+        if len(results) == 1:
+            return results[0]
+        events: list[WorldEvent] = []
+        changed: set[str] = set()
+        for result in results:
+            events.extend(result.events)
+            changed.update(agent.id for agent in result.changed_agents)
+        return TickResult(events=events, changed_agents=self._pack(changed))
+
+    def _tick_minute(self) -> TickResult:
         self._respawn_bread()
         if self.llm is None:
             return self._tick_rules()
         return self._tick_llm()
 
-    def apply_intent(self, player_id: str, intent: Intent) -> IntentResult:
+    def _tick_motion(self) -> TickResult:
+        """Move walkers only. Needs, bread, schedules, and the clock wait."""
+        action_time = self.time
+        new_events: list[WorldEvent] = []
+        changed_ids: set[str] = set()
+        if self.llm is not None:
+            events, changed_ids = self.llm.step_motion(action_time)
+            for event in events:
+                self.add_event(event)
+            new_events.extend(events)
+            for resident in self.llm.residents:
+                self.agents[resident.id] = resident.as_agent()
+        for agent in list(self.agents.values()):
+            if self.llm is not None and agent.id in self.llm.by_id:
+                continue
+            if self._collapsed(agent.id) and agent.state == "walking":
+                agent.state = "idle"
+                agent.target_location = agent.location
+                changed_ids.add(agent.id)
+                continue
+            if agent.state != "walking":
+                continue
+            before = (agent.state, agent.location, agent.position.x, agent.position.y)
+            event = move_agent(agent, action_time)
+            if event is not None:
+                self.add_event(event)
+                new_events.append(event)
+            after = (agent.state, agent.location, agent.position.x, agent.position.y)
+            if after != before:
+                changed_ids.add(agent.id)
+        return TickResult(events=new_events, changed_agents=self._pack(changed_ids))
+
+    def _sync_players_present(self) -> None:
+        if self.llm is None:
+            return
+        self.llm.players_present = any(
+            agent_id.startswith("player_") for agent_id in self.agents
+        )
+
+    def apply_intent(
+        self,
+        player_id: str,
+        intent: Intent,
+        client_seq: int = 0,
+    ) -> IntentResult:
         agent = self.agents.get(player_id)
         if agent is None or not player_id.startswith("player_"):
             return self._fail("no_player")
@@ -187,6 +259,10 @@ class World:
             return self._intent_give(agent, intent)
         if action == "use_tool":
             return self._intent_use_tool(agent, intent)
+        if action == "talk":
+            from app.simulation.player_talk import submit_talk
+
+            return submit_talk(self, player_id, intent, client_seq)
         return self._fail("bad_intent")
 
     def _tick_rules(self) -> TickResult:

@@ -41,6 +41,7 @@ var _frame_clock := 0.0
 var _local_player: bool = false
 var _hop := 0.0
 var _chat_left := 0.0
+var _conversing := false
 var _status_fx := ""
 var _hungry := false
 var _collapsed := false
@@ -384,6 +385,15 @@ func show_chat_emote() -> void:
 	_show_fx("fx.chat")
 
 
+func set_conversing(active: bool) -> void:
+	_conversing = active
+	if active:
+		_show_fx("fx.chat")
+		return
+	_chat_left = 0.0
+	_refresh_status_emote()
+
+
 func _read_needs(data: Dictionary) -> void:
 	_collapsed = bool(data.get("collapsed", false))
 	_hungry = false
@@ -393,6 +403,9 @@ func _read_needs(data: Dictionary) -> void:
 
 
 func _refresh_status_emote() -> void:
+	if _conversing:
+		_show_fx("fx.chat")
+		return
 	if _chat_left > 0.0:
 		return
 	if _collapsed:

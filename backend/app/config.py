@@ -18,6 +18,23 @@ SIMULATION_TICK_SECONDS = 1.0
 GAME_MINUTES_PER_TICK = 1
 SIMULATION_LOOP_ENABLED = True
 
+
+def game_minutes_per_real_second() -> float:
+    """Clock speed. Movement stays on SIMULATION_TICK_SECONDS.
+
+    PR4 changes the fallback from 1.0 to 0.4. A positive env value wins.
+    """
+    raw = os.environ.get("GAME_MINUTES_PER_REAL_SECOND", "").strip()
+    if raw == "":
+        return 1.0
+    try:
+        value = float(raw)
+    except ValueError:
+        return 1.0
+    if value <= 0:
+        return 1.0
+    return value
+
 INITIAL_DAY = 1
 INITIAL_TIME = "08:00"
 
@@ -78,6 +95,31 @@ PARK_PRODUCT_ID = "wood"
 PLAYER_ENABLED = True
 INTENT_RATE_LIMIT_PER_SEC = 5
 INTENT_MAX_BYTES = 4096
+PLAYER_TOKEN_BYTES = 32
+SHOW_PRODUCED_IN_EVENT_LOG = False
+
+LLM_QUEUE_MAX = 8
+DIALOGUE_TIMEOUT_SECONDS = 20.0
+DIALOGUE_MAX_QUEUE_WAIT_SECONDS = 25.0
+LLM_BACKGROUND_TIMEOUT_SECONDS = 20.0
+DIALOGUE_PARSE_RETRIES = 1
+DIALOGUE_FALLBACK_REPLY = "……我現在不太想說。"
+LLM_IDLE_DECISION_MINUTES_BUSY = 45
+LLM_DECISION_MAX_PER_ROUND = 8
+DIALOGUE_MEMORY_TURNS = 6
+DIALOGUE_MAX_FACTS_IN_PROMPT = 8
+DIALOGUE_REPLY_MAX_CHARS = 80
+TALK_MAX_CHARS = 200
+TALK_MIN_INTERVAL_SECONDS = 8.0
+TALK_MAX_PER_MINUTE = 6
+TALK_MAX_PER_ROUND = 40
+TALK_BLOCK_SUBSTRINGS = (
+    "兒童色情",
+    "幼童色情",
+    "未成年性交",
+    "child porn",
+    "loli sex",
+)
 SLEEP_ENERGY_PER_MINUTE = 0.25
 REST_ENERGY_PER_MINUTE = 0.08
 TALK_SOCIAL_RESTORE = 12.0

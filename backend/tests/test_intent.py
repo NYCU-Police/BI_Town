@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.ws_helpers import take_session
 
 from app import config, state
 from app.config import (
@@ -37,12 +38,12 @@ def _at(world: World, agent_id: str, poi_id: str) -> None:
 
 def test_connection_adds_and_removes_a_player() -> None:
     with client.websocket_connect("/ws") as watcher:
-        first = watcher.receive_json()
+        _session, first = take_session(watcher)
         you = first["data"]["you"]
         assert you.startswith("player_")
         assert you in {agent["id"] for agent in first["data"]["agents"]}
         with client.websocket_connect("/ws") as other:
-            other_snap = other.receive_json()
+            _other_session, other_snap = take_session(other)
             other_id = other_snap["data"]["you"]
             joined = watcher.receive_json()
             assert joined["type"] == "agent_update"
@@ -56,7 +57,7 @@ def test_connection_adds_and_removes_a_player() -> None:
 
 def test_intent_result_and_same_place_rules() -> None:
     with client.websocket_connect("/ws") as websocket:
-        snapshot = websocket.receive_json()
+        _session, snapshot = take_session(websocket)
         player_id = snapshot["data"]["you"]
         websocket.send_json(
             {
@@ -98,7 +99,7 @@ def test_rate_limit_and_max_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "INTENT_RATE_LIMIT_PER_SEC", 1)
     monkeypatch.setattr(config, "INTENT_MAX_BYTES", 160)
     with client.websocket_connect("/ws") as websocket:
-        websocket.receive_json()
+        take_session(websocket)
         websocket.send_json(
             {
                 "type": "intent",

@@ -20,12 +20,18 @@ var _others: Dictionary = {}
 var _last_action := ""
 var _last_item := ""
 var _inspected := ""
+var _talk_target := ""
+var _talk_name := ""
+var _talk_seq := 0
 
 
 func _ready() -> void:
 	_network.snapshot_received.connect(_on_snapshot)
 	_network.agent_updated.connect(_on_agents)
 	_network.intent_resolved.connect(_on_intent)
+	_network.dialogue_received.connect(_on_dialogue)
+	if _hud.has_signal("talk_submitted"):
+		_hud.talk_submitted.connect(_on_talk_submitted)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -87,7 +93,22 @@ func _on_agents(data: Dictionary) -> void:
 	_refresh_hotbar()
 
 
-func _on_intent(_client_seq: int, ok: bool, reason: String) -> void:
+func _on_intent(client_seq: int, ok: bool, reason: String) -> void:
+	if reason == "superseded":
+		return
+	if client_seq == _talk_seq and _talk_seq != 0:
+		if ok:
+			if _hud.has_method("show_intent_reason"):
+				_hud.show_intent_reason("")
+			if _hud.has_method("start_waiting"):
+				_hud.start_waiting(_talk_name)
+		else:
+			if _hud.has_method("stop_waiting"):
+				_hud.stop_waiting()
+			if _hud.has_method("show_intent_reason"):
+				_hud.show_intent_reason(_reason_text(reason))
+		_talk_seq = 0
+		return
 	if not _hud.has_method("show_intent_reason"):
 		return
 	if ok:
@@ -110,7 +131,7 @@ func _reason_text(reason: String) -> String:
 				return "這裡沒有麵包"
 			return "這裡沒有那樣東西"
 		"not_here":
-			if _last_action == "give":
+			if _last_action == "give" or _last_action == "talk":
 				return "對方不在這裡"
 			return "還沒走到那個地方"
 		"not_food":
@@ -121,6 +142,20 @@ func _reason_text(reason: String) -> String:
 			return "沒有這個地方"
 		"unknown_agent":
 			return "找不到對方"
+		"npc_unavailable":
+			return "他好像沒空理你。"
+		"too_long":
+			return "這句話太長了。"
+		"talk_limited":
+			return "請等一下再問。"
+		"rejected":
+			return "這句話不能送出。"
+		"empty":
+			return "先寫一句話。"
+		"busy":
+			return "%s這會兒騰不出來。" % _talk_name
+		"collapsed":
+			return "對方現在起不來。"
 		"rate_limited":
 			return "太快了"
 		"too_large":
@@ -212,6 +247,8 @@ func _click_move() -> void:
 		return
 	var mouse := get_viewport().get_mouse_position()
 	var view := get_viewport().get_visible_rect().size
+	if mouse.y >= view.y - 370.0 and mouse.x < 500.0:
+		return
 	if mouse.y >= view.y - 150.0 and mouse.x < 660.0:
 		return
 	var world_at: Vector2 = _world.get_global_mouse_position()
@@ -220,6 +257,12 @@ func _click_move() -> void:
 		if not hit.is_empty():
 			_inspected = hit
 			_show_inspected()
+			if hit != _player_id:
+				var info: Dictionary = _others.get(hit, {})
+				_talk_target = hit
+				_talk_name = str(info.get("name", hit))
+				if _hud.has_method("focus_resident"):
+					_hud.focus_resident(hit, _talk_name)
 			return
 	var nearest := str(_world.poi_at(world_at))
 	if nearest.is_empty():
@@ -304,7 +347,30 @@ func _cycle_selected() -> void:
 func _send_intent(intent: Dictionary) -> void:
 	_last_action = str(intent.get("action", ""))
 	_last_item = str(intent.get("item", ""))
-	_network.send_intent(intent)
+	var seq := int(_network.send_intent(intent))
+	if _last_action == "talk":
+		_talk_seq = seq
+
+
+func _on_talk_submitted(text: String) -> void:
+	if _talk_target.is_empty():
+		_show_local_reason("unknown_agent")
+		return
+	if _hud.has_method("note_player_line"):
+		_hud.note_player_line(text)
+	_send_intent({
+		"action": "talk",
+		"target": {"type": "agent", "id": _talk_target},
+		"text": text,
+	})
+
+
+func _on_dialogue(data: Dictionary) -> void:
+	if _hud.has_method("show_private_reply"):
+		_hud.show_private_reply(
+			str(data.get("speaker_id", "")),
+			str(data.get("reply", "")),
+		)
 
 
 func _show_local_reason(reason: String) -> void:
