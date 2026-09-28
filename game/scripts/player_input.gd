@@ -2,11 +2,6 @@ extends Node
 
 const _CLICK_RADIUS := 56.0
 const _FOOD := {"bread": true}
-const _ITEM_NAMES := {
-	"bread": "麵包",
-	"wood": "木材",
-	"watering_can": "澆水壺",
-}
 const _REASONS := {
 	"not_here": "還不在同一個地方",
 	"nothing_here": "這裡沒有那樣東西",
@@ -133,17 +128,15 @@ func _remember(agent: Dictionary) -> void:
 func _refresh_hotbar() -> void:
 	if not _hud.has_method("set_hotbar"):
 		return
-	var labels: Array[String] = []
+	var content_ids: Array[String] = []
 	for index in 3:
 		var tool := ""
 		if index < _tools.size():
 			tool = str(_tools[index])
-		var tool_name := str(_ITEM_NAMES.get(tool, tool)) if not tool.is_empty() else "—"
-		labels.append("%d %s" % [index + 1, tool_name])
+		content_ids.append("tool.%s" % tool if not tool.is_empty() else "")
 	var selected := _selected_id()
-	var selected_name := str(_ITEM_NAMES.get(selected, selected)) if not selected.is_empty() else "—"
-	labels.append("4 %s" % selected_name)
-	_hud.set_hotbar(labels)
+	content_ids.append("item.%s" % selected if not selected.is_empty() else "")
+	_hud.set_hotbar(content_ids)
 
 
 func _click_move() -> void:

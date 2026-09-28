@@ -28,7 +28,7 @@ func _ready() -> void:
 	_agents_label.text = "Agents: 0"
 	_needs_label.text = "Hunger —  Energy —  Social —"
 	_intent_label.text = ""
-	set_hotbar(["1 —", "2 —", "3 —", "4 —"])
+	set_hotbar(["", "", "", ""])
 	_request_health()
 
 
@@ -224,12 +224,22 @@ func _short_commit(commit: String) -> String:
 	return commit
 
 
-func set_hotbar(labels: Array) -> void:
+func set_hotbar(content_ids: Array) -> void:
 	for index in _slot_labels.size():
-		var text := "—"
-		if index < labels.size():
-			text = str(labels[index])
-		_slot_labels[index].text = text
+		var slot: Label = _slot_labels[index]
+		var content_id := ""
+		if index < content_ids.size():
+			content_id = str(content_ids[index])
+		slot.text = "%d" % [index + 1]
+		if content_id.is_empty():
+			var icon := slot.get_node_or_null("Icon")
+			if icon != null:
+				icon.queue_free()
+			var fallback := slot.get_node_or_null("Fallback")
+			if fallback != null:
+				fallback.queue_free()
+			continue
+		VisualBinder.apply_icon(slot, content_id)
 
 
 func set_needs(hunger: int, energy: int, social: int) -> void:
