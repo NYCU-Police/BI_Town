@@ -1,5 +1,7 @@
 extends Node2D
 
+const _Places := preload("res://scripts/place_names.gd")
+
 ## Must match backend/app/simulation/poi.py. These points are the ground
 ## in front of each door, so an idle resident stands on them as-is.
 const POIS := {
@@ -12,18 +14,6 @@ const POIS := {
 	"library": Vector2(168, 144),
 	"plaza": Vector2(280, 192),
 	"park": Vector2(392, 320),
-}
-
-const POI_NAMES := {
-	"mina_home": "Mina 的家",
-	"alex_home": "Alex 的家",
-	"rin_home": "Rin 的家",
-	"cafe": "咖啡廳",
-	"store": "便利商店",
-	"office": "辦公室",
-	"library": "圖書館",
-	"plaza": "廣場",
-	"park": "公園",
 }
 
 const POI_PICK_RADIUS := 56.0
@@ -68,7 +58,7 @@ func _ready() -> void:
 		ring.width = 2.0
 		ring.closed = true
 		ring.visible = false
-		ring.default_color = Color(1, 0.95, 0.72)
+		ring.default_color = _ui_color("poi_ring")
 		ring.points = _circle_points(18.0, 20)
 		node.add_child(ring)
 	_place_cafe_bread()
@@ -79,10 +69,7 @@ func _ready() -> void:
 	_hover_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hover_label.size = Vector2(120, 18)
 	_hover_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hover_label.add_theme_font_size_override("font_size", 12)
-	_hover_label.add_theme_color_override("font_color", Color.WHITE)
-	_hover_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
-	_hover_label.add_theme_constant_override("outline_size", 5)
+	_style_map_label(_hover_label)
 	add_child(_hover_label)
 	_destination_mark = _make_destination_mark()
 	add_child(_destination_mark)
@@ -95,10 +82,7 @@ func _ready() -> void:
 	_notice_label.size = Vector2(220, 48)
 	_notice_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_notice_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_notice_label.add_theme_font_size_override("font_size", 12)
-	_notice_label.add_theme_color_override("font_color", Color("#f4f0e6"))
-	_notice_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
-	_notice_label.add_theme_constant_override("outline_size", 4)
+	_style_map_label(_notice_label)
 	add_child(_notice_label)
 
 
@@ -342,6 +326,7 @@ func _set_hover(poi_id: String) -> void:
 			if old_sprite != null:
 				old_sprite.modulate = Color.WHITE
 	_hover_id = poi_id
+	_sync_place_label_visibility()
 	if poi_id.is_empty() or pois_root == null:
 		_hover_label.visible = false
 		return
@@ -354,7 +339,7 @@ func _set_hover(poi_id: String) -> void:
 		ring.visible = true
 	var sprite := node.get_node_or_null("Sprite") as CanvasItem
 	if sprite != null:
-		sprite.modulate = Color(1.45, 1.38, 1.05)
+		sprite.modulate = _ui_color("poi_hover")
 	_hover_label.text = _place_caption(poi_id)
 	var anchor: Vector2 = POIS[poi_id]
 	_hover_label.position = anchor + Vector2(-60, -54)
@@ -364,7 +349,7 @@ func _set_hover(poi_id: String) -> void:
 func _place_caption(poi_id: String) -> String:
 	if _show_content_ids:
 		return "poi.%s" % poi_id
-	return str(POI_NAMES.get(poi_id, poi_id))
+	return _Places.label(poi_id)
 
 
 func _refresh_place_names() -> void:
@@ -386,18 +371,31 @@ func _make_place_label(poi_id: String) -> Label:
 	label.position = POIS[poi_id] + Vector2(-60, -68)
 	label.size = Vector2(120, 16)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 12)
-	label.add_theme_color_override("font_color", Color.WHITE)
-	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
-	label.add_theme_constant_override("outline_size", 2)
+	_style_map_label(label)
 	add_child(label)
 	return label
 
 
+func _style_map_label(label: Label) -> void:
+	label.theme_type_variation = "MapLabel"
+
+
+func _sync_place_label_visibility() -> void:
+	for poi_id in _place_labels:
+		var label := _place_labels[poi_id] as CanvasItem
+		if label != null:
+			label.visible = str(poi_id) != _hover_id
+
+
+func _ui_color(item: String) -> Color:
+	return ThemeDB.get_project_theme().get_color(item, &"UI")
+
+
 func _pointer_over_chrome() -> bool:
-	var view := get_viewport().get_visible_rect().size
-	var mouse := get_viewport().get_mouse_position()
-	return mouse.y >= view.y - 168.0 and mouse.x < 660.0
+	var hud := get_parent().get_node_or_null("HUD")
+	if hud != null and hud.has_method("blocks_pointer"):
+		return bool(hud.blocks_pointer(get_viewport().get_mouse_position()))
+	return false
 
 
 func _make_destination_mark() -> Node2D:
@@ -406,7 +404,7 @@ func _make_destination_mark() -> Node2D:
 	mark.z_index = 25
 	mark.visible = false
 	var pin := Polygon2D.new()
-	pin.color = Color(1.0, 0.78, 0.15)
+	pin.color = _ui_color("destination")
 	pin.polygon = PackedVector2Array([
 		Vector2(0, -2),
 		Vector2(-8, -18),

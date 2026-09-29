@@ -1,39 +1,7 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://scripts/event_log.gd" id="2_log"]
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
-bg_color = Color(0.08, 0.09, 0.11, 0.94)
-border_width_left = 1
-border_color = Color(0.24, 0.27, 0.3, 1)
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_inspect"]
-bg_color = Color(0.08, 0.09, 0.11, 0.94)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.24, 0.27, 0.3, 1)
-corner_radius_top_left = 4
-corner_radius_top_right = 4
-corner_radius_bottom_right = 4
-corner_radius_bottom_left = 4
-content_margin_left = 12.0
-content_margin_top = 8.0
-content_margin_right = 12.0
-content_margin_bottom = 8.0
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hint"]
-bg_color = Color(0.05, 0.06, 0.08, 0.78)
-corner_radius_top_left = 3
-corner_radius_top_right = 3
-corner_radius_bottom_right = 3
-corner_radius_bottom_left = 3
-content_margin_left = 8.0
-content_margin_top = 4.0
-content_margin_right = 8.0
-content_margin_bottom = 4.0
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -46,7 +14,6 @@ anchor_bottom = 1.0
 offset_left = -360.0
 grow_horizontal = 0
 grow_vertical = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
 
 [node name="Margin" type="MarginContainer" parent="Panel"]
 layout_mode = 1
@@ -67,103 +34,124 @@ theme_override_constants/separation = 10
 [node name="Title" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 24
+theme_type_variation = &"Title"
 text = "BI_Town"
 
 [node name="BuildLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.65, 0.67, 0.64, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Muted"
 text = "commit —"
 
 [node name="TimeLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.86, 0.86, 0.82, 1)
-theme_override_font_sizes/font_size = 24
+theme_type_variation = &"Title"
 text = "Day — --:--"
 
 [node name="StatusLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.32, 0.32, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Warn"
 text = "Server  ● Offline"
 
 [node name="AgentsLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.8, 0.8, 0.78, 1)
+theme_type_variation = &"Muted"
 text = "Agents: 0"
+
+[node name="MuteButton" type="Button" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 24)
+layout_mode = 2
+size_flags_horizontal = 0
+focus_mode = 0
+text = "聲音"
 
 [node name="Separator" type="HSeparator" parent="Panel/Margin/VBox"]
 layout_mode = 2
 
-[node name="EventLogTitle" type="Label" parent="Panel/Margin/VBox"]
+[node name="EventLogToggle" type="Button" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.75, 0.75, 0.72, 1)
-text = "Event Log"
+focus_mode = 0
+text = "事件日誌"
 
 [node name="EventLog" type="RichTextLabel" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
+visible = false
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_colors/default_color = Color(0.82, 0.82, 0.78, 1)
 theme_override_constants/line_separation = 0
 theme_override_constants/paragraph_separation = 1
 meta_underlined = false
-theme_override_font_sizes/normal_font_size = 12
 bbcode_enabled = true
 text = ""
 scroll_active = true
 scroll_following = true
 script = ExtResource("2_log")
 
-[node name="Hotbar" type="VBoxContainer" parent="."]
-anchors_preset = 2
+[node name="HotbarPanel" type="Panel" parent="."]
+clip_contents = true
+anchors_preset = 12
 anchor_top = 1.0
+anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
-offset_top = -160.0
-offset_right = 640.0
+offset_top = -176.0
+offset_right = -376.0
 offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Margin" type="MarginContainer" parent="HotbarPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="Hotbar" type="VBoxContainer" parent="HotbarPanel/Margin"]
+layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 4
 
-[node name="NeedsLabel" type="Label" parent="Hotbar"]
+[node name="NeedsLabel" type="Label" parent="HotbarPanel/Margin/Hotbar"]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 12
 text = "Hunger —  Energy —  Social —"
 
-[node name="Slots" type="HBoxContainer" parent="Hotbar"]
+[node name="Slots" type="HBoxContainer" parent="HotbarPanel/Margin/Hotbar"]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="Slot1" type="Panel" parent="Hotbar/Slots"]
+[node name="Slot1" type="Panel" parent="HotbarPanel/Margin/Hotbar/Slots"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(52, 48)
 layout_mode = 2
 mouse_filter = 2
+theme_type_variation = &"Slot"
 
-[node name="Number" type="Label" parent="Hotbar/Slots/Slot1"]
+[node name="Number" type="Label" parent="HotbarPanel/Margin/Hotbar/Slots/Slot1"]
 layout_mode = 0
 offset_left = 2.0
 offset_top = 2.0
 offset_right = 16.0
 offset_bottom = 18.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Ink"
 text = "1"
 horizontal_alignment = 1
 
-[node name="IconHost" type="Control" parent="Hotbar/Slots/Slot1"]
+[node name="IconHost" type="Control" parent="HotbarPanel/Margin/Hotbar/Slots/Slot1"]
 clip_contents = true
 layout_mode = 0
 offset_left = 18.0
@@ -172,38 +160,37 @@ offset_right = 34.0
 offset_bottom = 22.0
 mouse_filter = 2
 
-[node name="Count" type="Label" parent="Hotbar/Slots/Slot1"]
+[node name="Count" type="Label" parent="HotbarPanel/Margin/Hotbar/Slots/Slot1"]
 layout_mode = 0
 offset_left = 4.0
 offset_top = 30.0
 offset_right = 48.0
 offset_bottom = 46.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Ink"
 text = ""
 horizontal_alignment = 2
 vertical_alignment = 2
 
-[node name="Slot2" type="Panel" parent="Hotbar/Slots"]
+[node name="Slot2" type="Panel" parent="HotbarPanel/Margin/Hotbar/Slots"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(52, 48)
 layout_mode = 2
 mouse_filter = 2
+theme_type_variation = &"Slot"
 
-[node name="Number" type="Label" parent="Hotbar/Slots/Slot2"]
+[node name="Number" type="Label" parent="HotbarPanel/Margin/Hotbar/Slots/Slot2"]
 layout_mode = 0
 offset_left = 2.0
 offset_top = 2.0
 offset_right = 16.0
 offset_bottom = 18.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Ink"
 text = "2"
 horizontal_alignment = 1
 
-[node name="IconHost" type="Control" parent="Hotbar/Slots/Slot2"]
+[node name="IconHost" type="Control" parent="HotbarPanel/Margin/Hotbar/Slots/Slot2"]
 clip_contents = true
 layout_mode = 0
 offset_left = 18.0
@@ -212,38 +199,37 @@ offset_right = 34.0
 offset_bottom = 22.0
 mouse_filter = 2
 
-[node name="Count" type="Label" parent="Hotbar/Slots/Slot2"]
+[node name="Count" type="Label" parent="HotbarPanel/Margin/Hotbar/Slots/Slot2"]
 layout_mode = 0
 offset_left = 4.0
 offset_top = 30.0
 offset_right = 48.0
 offset_bottom = 46.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Ink"
 text = ""
 horizontal_alignment = 2
 vertical_alignment = 2
 
-[node name="Slot3" type="Panel" parent="Hotbar/Slots"]
+[node name="Slot3" type="Panel" parent="HotbarPanel/Margin/Hotbar/Slots"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(52, 48)
 layout_mode = 2
 mouse_filter = 2
+theme_type_variation = &"Slot"
 
-[node name="Number" type="Label" parent="Hotbar/Slots/Slot3"]
+[node name="Number" type="Label" parent="HotbarPanel/Margin/Hotbar/Slots/Slot3"]
 layout_mode = 0
 offset_left = 2.0
 offset_top = 2.0
 offset_right = 16.0
 offset_bottom = 18.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Ink"
 text = "3"
 horizontal_alignment = 1
 
-[node name="IconHost" type="Control" parent="Hotbar/Slots/Slot3"]
+[node name="IconHost" type="Control" parent="HotbarPanel/Margin/Hotbar/Slots/Slot3"]
 clip_contents = true
 layout_mode = 0
 offset_left = 18.0
@@ -252,38 +238,37 @@ offset_right = 34.0
 offset_bottom = 22.0
 mouse_filter = 2
 
-[node name="Count" type="Label" parent="Hotbar/Slots/Slot3"]
+[node name="Count" type="Label" parent="HotbarPanel/Margin/Hotbar/Slots/Slot3"]
 layout_mode = 0
 offset_left = 4.0
 offset_top = 30.0
 offset_right = 48.0
 offset_bottom = 46.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Ink"
 text = ""
 horizontal_alignment = 2
 vertical_alignment = 2
 
-[node name="Slot4" type="Panel" parent="Hotbar/Slots"]
+[node name="Slot4" type="Panel" parent="HotbarPanel/Margin/Hotbar/Slots"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(52, 48)
 layout_mode = 2
 mouse_filter = 2
+theme_type_variation = &"Slot"
 
-[node name="Number" type="Label" parent="Hotbar/Slots/Slot4"]
+[node name="Number" type="Label" parent="HotbarPanel/Margin/Hotbar/Slots/Slot4"]
 layout_mode = 0
 offset_left = 2.0
 offset_top = 2.0
 offset_right = 16.0
 offset_bottom = 18.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.95, 0.78, 0.35, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Ink"
 text = "4"
 horizontal_alignment = 1
 
-[node name="IconHost" type="Control" parent="Hotbar/Slots/Slot4"]
+[node name="IconHost" type="Control" parent="HotbarPanel/Margin/Hotbar/Slots/Slot4"]
 clip_contents = true
 layout_mode = 0
 offset_left = 18.0
@@ -292,38 +277,30 @@ offset_right = 34.0
 offset_bottom = 22.0
 mouse_filter = 2
 
-[node name="Count" type="Label" parent="Hotbar/Slots/Slot4"]
+[node name="Count" type="Label" parent="HotbarPanel/Margin/Hotbar/Slots/Slot4"]
 layout_mode = 0
 offset_left = 4.0
 offset_top = 30.0
 offset_right = 48.0
 offset_bottom = 46.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.95, 0.78, 0.35, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Ink"
 text = ""
 horizontal_alignment = 2
 vertical_alignment = 2
 
-[node name="Hint" type="PanelContainer" parent="Hotbar"]
+[node name="Hint" type="Label" parent="HotbarPanel/Margin/Hotbar"]
 layout_mode = 2
 mouse_filter = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_hint")
+text = "點地點移動　滾輪縮放　空白鍵回自己
+1–3 工具　4 使用　E 撿　G 給予　Q 切換　N 筆記"
 
-[node name="Label" type="Label" parent="Hotbar/Hint"]
-layout_mode = 2
-mouse_filter = 2
-theme_override_colors/font_color = Color(0.96, 0.96, 0.94, 1)
-theme_override_font_sizes/font_size = 12
-text = "點地點移動　點居民打字　N 筆記　滾輪縮放　空白鍵回到自己　1–3 工具　4 使用　E 撿　G 給予　Q 切換"
-
-[node name="IntentLabel" type="Label" parent="Hotbar"]
+[node name="IntentLabel" type="Label" parent="HotbarPanel/Margin/Hotbar"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 22)
+custom_minimum_size = Vector2(0, 16)
 layout_mode = 2
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.96, 0.62, 0.18, 1)
-theme_override_font_sizes/font_size = 12
+theme_type_variation = &"Warn"
 text = ""
 
 [node name="Inspect" type="Panel" parent="."]
@@ -333,7 +310,6 @@ offset_left = 16.0
 offset_top = 16.0
 offset_right = 220.0
 offset_bottom = 112.0
-theme_override_styles/panel = SubResource("StyleBoxFlat_inspect")
 
 [node name="InspectBox" type="VBoxContainer" parent="Inspect"]
 layout_mode = 1
@@ -347,24 +323,20 @@ theme_override_constants/separation = 2
 [node name="InspectName" type="Label" parent="Inspect/InspectBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.93, 0.93, 0.9, 1)
-theme_override_font_sizes/font_size = 24
+theme_type_variation = &"Title"
 text = ""
 
 [node name="InspectHunger" type="Label" parent="Inspect/InspectBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 12
 text = "Hunger —"
 
 [node name="InspectEnergy" type="Label" parent="Inspect/InspectBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 12
 text = "Energy —"
 
 [node name="InspectSocial" type="Label" parent="Inspect/InspectBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 12
 text = "Social —"

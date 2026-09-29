@@ -4,16 +4,17 @@ signal talk_submitted(text: String)
 signal note_presented(fact_id: String)
 signal dialogue_target_changed
 
-const _MATCH_COLOR := Color(0.65, 0.67, 0.64)
-const _MISMATCH_COLOR := Color(0.96, 0.62, 0.18)
+const _Places := preload("res://scripts/place_names.gd")
 ## Same line as the server's hungry / exhausted / lonely marks.
 const _LOW_NEED := 30
-const _NEED_OK := Color(0.93, 0.93, 0.9)
-const _NEED_LOW := Color(0.93, 0.32, 0.32)
-const _UI_PANEL := "res://assets/packs/default/ui/panel.png"
-const _UI_BG := "res://assets/packs/default/ui/panel_bg.png"
-const _UI_SLOT := "res://assets/packs/default/ui/slot.png"
-const _UI_BUTTON := "res://assets/packs/default/ui/button.png"
+const _SIDE_W := 360.0
+const _EDGE := 16.0
+const _HOTBAR_TOP := 176.0
+const _DIALOGUE_H := 192.0
+const _DIALOGUE_GAP := 8.0
+const _DIALOGUE_PREF_RIGHT := 480.0
+const _INSPECT_HOME := Rect2(16, 16, 204, 96)
+const _INSPECT_ASIDE := Rect2(352, 56, 204, 96)
 
 @onready var _title_label: Label = %Title
 @onready var _build_label: Label = %BuildLabel
@@ -28,11 +29,18 @@ const _UI_BUTTON := "res://assets/packs/default/ui/button.png"
 @onready var _inspect_hunger: Label = %InspectHunger
 @onready var _inspect_energy: Label = %InspectEnergy
 @onready var _inspect_social: Label = %InspectSocial
+@onready var _mute_button: Button = %MuteButton
+@onready var _event_log_toggle: Button = %EventLogToggle
 
 var _slots: Array[Panel] = []
 
 var _agent_names: Dictionary = {}
 var _web_health_callback: Variant
+var _name_hex: Dictionary = {}
+var _said_hex := ""
+var _thought_hex := ""
+var _move_hex := ""
+var _dialogue: Panel
 var _dialogue_log: RichTextLabel
 var _dialogue_status: Label
 var _dialogue_line: LineEdit
@@ -51,7 +59,11 @@ var _dot_accum := 0.0
 
 func _ready() -> void:
 	_slots = [%Slot1, %Slot2, %Slot3, %Slot4]
+	_cache_theme_colors()
 	_event_log.meta_clicked.connect(_on_log_meta)
+	_mute_button.pressed.connect(_toggle_mute)
+	_event_log_toggle.pressed.connect(_toggle_event_log)
+	get_viewport().size_changed.connect(_layout_chrome)
 	set_connection(false)
 	_title_label.text = "BI_Town"
 	_render_identity(_read_local_frontend_commit(), "", "", false)
@@ -59,7 +71,6 @@ func _ready() -> void:
 	_agents_label.text = "Agents: 0"
 	_needs_label.text = "Hunger —  Energy —  Social —"
 	_intent_label.text = ""
-	_apply_wood_frames()
 	set_hotbar([
 		{"content_id": "", "count": 0, "selected": false},
 		{"content_id": "", "count": 0, "selected": false},
@@ -69,6 +80,7 @@ func _ready() -> void:
 	_request_health()
 	_build_dialogue()
 	_build_notebook()
+	_layout_chrome()
 
 
 func apply_snapshot(data: Dictionary) -> void:
@@ -120,10 +132,10 @@ func apply_event(data: Dictionary) -> void:
 func set_connection(online: bool) -> void:
 	if online:
 		_status_label.text = "Server  ● Online"
-		_status_label.add_theme_color_override("font_color", Color(0.35, 0.85, 0.45))
+		_status_label.theme_type_variation = "Accent"
 	else:
 		_status_label.text = "Server  ● Offline"
-		_status_label.add_theme_color_override("font_color", Color(0.90, 0.32, 0.32))
+		_status_label.theme_type_variation = "Warn"
 
 
 func _request_health() -> void:
@@ -260,10 +272,7 @@ func _render_identity(frontend: String, backend: String, deployed: String, settl
 		_short_commit(backend_text),
 		deployed_text,
 	]
-	var color := _MATCH_COLOR
-	if settled and frontend != backend:
-		color = _MISMATCH_COLOR
-	_build_label.add_theme_color_override("font_color", color)
+	_build_label.theme_type_variation = "Accent" if settled and frontend != backend else "Muted"
 
 
 func _short_commit(commit: String) -> String:
@@ -283,7 +292,7 @@ func set_hotbar(slots: Array) -> void:
 			content_id = str(info.get("content_id", ""))
 			count = int(info.get("count", 0))
 			selected = bool(info.get("selected", false))
-		slot.add_theme_stylebox_override("panel", _slot_style(selected))
+		slot.theme_type_variation = "SlotSelected" if selected else "Slot"
 		var number := slot.get_node("Number") as Label
 		number.text = str(index + 1)
 		var count_label := slot.get_node("Count") as Label
@@ -295,55 +304,6 @@ func set_hotbar(slots: Array) -> void:
 			VisualBinder.apply_icon(host, content_id)
 
 
-func _slot_style(selected: bool) -> StyleBoxTexture:
-	# Selected slots use the orange panel; the others use the inventory cell.
-	return _wood_box(_UI_PANEL if selected else _UI_SLOT, 4 if selected else 3)
-
-
-func _apply_wood_frames() -> void:
-	var panel := $Panel as Panel
-	panel.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	panel.add_theme_stylebox_override("panel", _wood_box(_UI_PANEL, 6))
-	var inspect := $Inspect as Panel
-	if inspect != null:
-		inspect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		inspect.add_theme_stylebox_override("panel", _wood_box(_UI_PANEL, 6))
-	var hint := $Hotbar/Hint as PanelContainer
-	if hint != null:
-		hint.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		hint.add_theme_stylebox_override("panel", _wood_box(_UI_BG, 4))
-	var mute := Button.new()
-	mute.name = "MuteButton"
-	mute.text = "聲音"
-	mute.focus_mode = Control.FOCUS_NONE
-	mute.custom_minimum_size = Vector2(48, 24)
-	mute.offset_left = 16.0
-	mute.offset_top = 16.0
-	mute.offset_right = 64.0
-	mute.offset_bottom = 40.0
-	mute.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	mute.add_theme_font_size_override("font_size", 12)
-	var button_box := _wood_box(_UI_BUTTON, 0)
-	mute.add_theme_stylebox_override("normal", button_box)
-	mute.add_theme_stylebox_override("hover", button_box)
-	mute.add_theme_stylebox_override("pressed", button_box)
-	mute.add_theme_stylebox_override("focus", button_box)
-	mute.pressed.connect(_toggle_mute)
-	add_child(mute)
-
-
-func _wood_box(path: String, margin: int) -> StyleBoxTexture:
-	var box := StyleBoxTexture.new()
-	box.texture = load(path)
-	box.texture_margin_left = margin
-	box.texture_margin_right = margin
-	box.texture_margin_top = margin
-	box.texture_margin_bottom = margin
-	box.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_TILE
-	box.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_TILE
-	return box
-
-
 func _toggle_mute() -> void:
 	var audio := get_parent().get_node_or_null("GameAudio")
 	if audio == null or not audio.has_method("set_muted"):
@@ -352,9 +312,8 @@ func _toggle_mute() -> void:
 	if audio.has_method("is_muted"):
 		muted = not bool(audio.is_muted())
 	audio.set_muted(muted)
-	var mute := get_node_or_null("MuteButton") as Button
-	if mute != null:
-		mute.text = "靜音" if muted else "聲音"
+	if _mute_button != null:
+		_mute_button.text = "靜音" if muted else "聲音"
 
 
 func _clear_slot_icon(host: Control) -> void:
@@ -376,16 +335,24 @@ func show_intent_reason(reason: String) -> void:
 
 func show_inspect(agent_name: String, hunger: int, energy: int, social: int) -> void:
 	_inspect.visible = true
+	_place_inspect()
 	_inspect_name.text = agent_name
 	_paint_need(_inspect_hunger, "Hunger", hunger)
 	_paint_need(_inspect_energy, "Energy", energy)
 	_paint_need(_inspect_social, "Social", social)
 
 
+func _place_inspect() -> void:
+	var rect := _INSPECT_ASIDE if _notebook != null and _notebook.visible else _INSPECT_HOME
+	_inspect.offset_left = rect.position.x
+	_inspect.offset_top = rect.position.y
+	_inspect.offset_right = rect.position.x + rect.size.x
+	_inspect.offset_bottom = rect.position.y + rect.size.y
+
+
 func _paint_need(label: Label, title: String, value: int) -> void:
 	label.text = "%s %d" % [title, value]
-	var tint := _NEED_LOW if value < _LOW_NEED else _NEED_OK
-	label.add_theme_color_override("font_color", tint)
+	label.theme_type_variation = "NeedLow" if value < _LOW_NEED else ""
 
 
 func _set_clock(data: Dictionary) -> void:
@@ -398,27 +365,6 @@ func _remember_agent(agent: Dictionary) -> void:
 	if agent_id.is_empty():
 		return
 	_agent_names[agent_id] = str(agent.get("name", agent_id))
-
-
-const _PLACE_NAMES := {
-	"mina_home": "Mina 的家",
-	"alex_home": "Alex 的家",
-	"rin_home": "Rin 的家",
-	"cafe": "咖啡廳",
-	"store": "便利商店",
-	"office": "辦公室",
-	"library": "圖書館",
-	"plaza": "廣場",
-	"park": "公園",
-}
-const _NAME_COLORS := {
-	"mina": "#e8737a",
-	"alex": "#59b8c7",
-	"rin": "#f2c759",
-}
-const _SAID_COLOR := "#d1d1cc"
-const _THOUGHT_COLOR := "#8e8e89"
-const _MOVE_COLOR := "#7a7a76"
 
 
 func _append_event(data: Dictionary) -> void:
@@ -437,7 +383,7 @@ func _escape_bbcode(line: String) -> String:
 
 func _colored_name(agent_id: String) -> String:
 	var agent_name := str(_agent_names.get(agent_id, agent_id.capitalize()))
-	var color := str(_NAME_COLORS.get(agent_id, "#d9d9d4"))
+	var color := str(_name_hex.get(agent_id, _said_hex))
 	return "[url=%s][color=%s]%s[/color][/url]" % [
 		agent_id,
 		color,
@@ -446,7 +392,7 @@ func _colored_name(agent_id: String) -> String:
 
 
 func _place_label(poi_id: String) -> String:
-	return str(_PLACE_NAMES.get(poi_id, poi_id))
+	return _Places.label(poi_id)
 
 
 func _on_log_meta(meta: Variant) -> void:
@@ -480,13 +426,13 @@ func _format_event(data: Dictionary) -> String:
 	var action := str(data.get("event", ""))
 	var template := str(_EVENT_TEMPLATES.get(action, "{time} {name} {action}"))
 	var move := action in ["left", "entered", "activity", "ate", "gave", "picked_up", "produced"]
-	var color := _MOVE_COLOR if (move or action == "conversing") else (
-		_THOUGHT_COLOR if action == "thought" else _SAID_COLOR
+	var color := _move_hex if (move or action == "conversing") else (
+		_thought_hex if action == "thought" else _said_hex
 	)
 	var target_id := str(data.get("target_agent_id", ""))
 	var arrow := ""
 	if action == "said" and not target_id.is_empty():
-		arrow = " %s %s" % [_tone("→", _SAID_COLOR), _colored_name(target_id)]
+		arrow = " %s %s" % [_tone("→", _said_hex), _colored_name(target_id)]
 	var spoken := str(data.get("content", ""))
 	var quote := "「%s」" % spoken if action == "said" else spoken
 	var fields := {
@@ -518,7 +464,7 @@ func _join_header(parts: Array) -> String:
 	var glued := ""
 	for index in parts.size():
 		if index > 0:
-			glued += _tone("\u00A0", _SAID_COLOR)
+			glued += _tone("\u00A0", _said_hex)
 		glued += parts[index]
 	return glued
 
@@ -527,17 +473,36 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo and key.keycode == KEY_N:
-			if _notebook != null:
-				_notebook.visible = not _notebook.visible
+			_toggle_notebook()
 			get_viewport().set_input_as_handled()
 
 
+func _toggle_notebook() -> void:
+	if _notebook == null:
+		return
+	_notebook.visible = not _notebook.visible
+	if _notebook.visible:
+		_inspect.visible = false
+	_place_inspect()
+
+
+func _toggle_event_log() -> void:
+	_event_log.visible = not _event_log.visible
+	_event_log_toggle.text = "事件日誌 ▾" if _event_log.visible else "事件日誌"
+
+
 func blocks_pointer(point: Vector2) -> bool:
-	return (
-		_notebook != null
-		and _notebook.visible
-		and _notebook.get_global_rect().has_point(point)
-	)
+	var nodes: Array[Control] = [$Panel, $HotbarPanel]
+	if _dialogue != null:
+		nodes.append(_dialogue)
+	if _notebook != null:
+		nodes.append(_notebook)
+	if _inspect != null:
+		nodes.append(_inspect)
+	for node in nodes:
+		if node.visible and node.get_global_rect().has_point(point):
+			return true
+	return false
 
 
 func note_count() -> int:
@@ -577,7 +542,6 @@ func _rebuild_notes() -> void:
 	if _note_texts.is_empty():
 		var empty := Label.new()
 		empty.text = "還沒有筆記。"
-		empty.add_theme_color_override("font_color", Color("#f4f0e6"))
 		_note_box.add_child(empty)
 		return
 	for index in _note_texts.size():
@@ -586,12 +550,14 @@ func _rebuild_notes() -> void:
 		button.text = "出示"
 		var fact_id := str(_note_fact_ids[index])
 		button.disabled = _confront_target.is_empty() or fact_id.is_empty()
+		button.focus_mode = Control.FOCUS_NONE
+		button.custom_minimum_size = Vector2(48, 24)
+		button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		button.pressed.connect(_present_note.bind(fact_id))
 		var label := Label.new()
 		label.text = str(_note_texts[index])
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label.add_theme_color_override("font_color", Color("#f4f0e6"))
 		row.add_child(button)
 		row.add_child(label)
 		_note_box.add_child(row)
@@ -610,16 +576,8 @@ func _build_notebook() -> void:
 	_notebook.anchor_left = 0.0
 	_notebook.anchor_top = 0.0
 	_notebook.anchor_right = 0.0
-	_notebook.anchor_bottom = 0.0
-	_notebook.offset_left = 16.0
-	_notebook.offset_top = 56.0
-	_notebook.offset_right = 336.0
-	_notebook.offset_bottom = 320.0
+	_notebook.anchor_bottom = 1.0
 	_notebook.mouse_filter = Control.MOUSE_FILTER_STOP
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#1c1916")
-	style.set_corner_radius_all(6)
-	_notebook.add_theme_stylebox_override("panel", style)
 	add_child(_notebook)
 
 	var title := Label.new()
@@ -628,14 +586,15 @@ func _build_notebook() -> void:
 	title.offset_top = 8.0
 	title.offset_right = 300.0
 	title.offset_bottom = 28.0
-	title.add_theme_color_override("font_color", Color("#f4f0e6"))
 	_notebook.add_child(title)
 
 	var scroll := ScrollContainer.new()
+	scroll.anchor_right = 1.0
+	scroll.anchor_bottom = 1.0
 	scroll.offset_left = 10.0
 	scroll.offset_top = 32.0
-	scroll.offset_right = 310.0
-	scroll.offset_bottom = 254.0
+	scroll.offset_right = -10.0
+	scroll.offset_bottom = -10.0
 	scroll.mouse_filter = Control.MOUSE_FILTER_STOP
 	_notebook.add_child(scroll)
 	_note_box = VBoxContainer.new()
@@ -651,16 +610,9 @@ func _build_dialogue() -> void:
 	panel.anchor_top = 1.0
 	panel.anchor_right = 0.0
 	panel.anchor_bottom = 1.0
-	panel.offset_left = 16.0
-	panel.offset_top = -360.0
-	panel.offset_right = 480.0
-	panel.offset_bottom = -168.0
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#1c1916")
-	style.set_corner_radius_all(6)
-	panel.add_theme_stylebox_override("panel", style)
 	add_child(panel)
+	_dialogue = panel
 
 	_dialogue_log = RichTextLabel.new()
 	_dialogue_log.bbcode_enabled = false
@@ -672,7 +624,6 @@ func _build_dialogue() -> void:
 	_dialogue_log.offset_right = -10.0
 	_dialogue_log.offset_bottom = -72.0
 	_dialogue_log.mouse_filter = Control.MOUSE_FILTER_STOP
-	_dialogue_log.add_theme_color_override("default_color", Color("#f4f0e6"))
 	panel.add_child(_dialogue_log)
 
 	_dialogue_status = Label.new()
@@ -683,7 +634,6 @@ func _build_dialogue() -> void:
 	_dialogue_status.offset_top = -68.0
 	_dialogue_status.offset_right = -10.0
 	_dialogue_status.offset_bottom = -44.0
-	_dialogue_status.add_theme_color_override("font_color", Color("#f4f0e6"))
 	panel.add_child(_dialogue_status)
 
 	_dialogue_line = LineEdit.new()
@@ -695,10 +645,39 @@ func _build_dialogue() -> void:
 	_dialogue_line.offset_right = -10.0
 	_dialogue_line.offset_bottom = -8.0
 	_dialogue_line.placeholder_text = "點一位居民，再打字"
-	_dialogue_line.add_theme_color_override("font_color", Color("#f4f0e6"))
-	_dialogue_line.add_theme_color_override("font_placeholder_color", Color("#a39e94"))
 	_dialogue_line.text_submitted.connect(_on_dialogue_submitted)
 	panel.add_child(_dialogue_line)
+
+
+func _layout_chrome() -> void:
+	var width := get_viewport().get_visible_rect().size.x
+	var limit := width - _SIDE_W - _EDGE
+	if _dialogue != null:
+		_dialogue.offset_left = _EDGE
+		_dialogue.offset_right = min(_DIALOGUE_PREF_RIGHT, limit)
+		_dialogue.offset_bottom = -(_HOTBAR_TOP + _DIALOGUE_GAP)
+		_dialogue.offset_top = _dialogue.offset_bottom - _DIALOGUE_H
+	if _notebook != null:
+		_notebook.offset_left = _EDGE
+		_notebook.offset_top = 56.0
+		_notebook.offset_right = 336.0
+		var dialogue_top := -(_HOTBAR_TOP + _DIALOGUE_GAP + _DIALOGUE_H)
+		_notebook.offset_bottom = dialogue_top - _DIALOGUE_GAP
+
+
+func _cache_theme_colors() -> void:
+	_said_hex = _theme_hex("text")
+	_thought_hex = _theme_hex("text_dim")
+	_move_hex = _theme_hex("text_dim")
+	_name_hex = {
+		"mina": _theme_hex("name_mina"),
+		"alex": _theme_hex("name_alex"),
+		"rin": _theme_hex("name_rin"),
+	}
+
+
+func _theme_hex(item: String) -> String:
+	return "#" + ThemeDB.get_project_theme().get_color(item, &"UI").to_html(false)
 
 
 func _process(delta: float) -> void:
