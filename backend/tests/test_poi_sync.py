@@ -4,6 +4,7 @@ from pathlib import Path
 from app.simulation.poi import POIS
 
 _GODOT = Path(__file__).resolve().parents[2] / "game" / "scripts" / "world.gd"
+_NAMES = Path(__file__).resolve().parents[2] / "game" / "scripts" / "place_names.gd"
 _VECTOR = re.compile(
     r'"([a-z_]+)"\s*:\s*Vector2\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)'
 )
@@ -13,8 +14,8 @@ _NAME = re.compile(r'"([a-z_]+)"\s*:\s*"([^"]*)"')
 
 
 def test_godot_place_names_match_poi() -> None:
-    text = _GODOT.read_text(encoding="utf-8")
-    block = text.split("const POI_NAMES := {", 1)[1].split("}", 1)[0]
+    text = _NAMES.read_text(encoding="utf-8")
+    block = text.split("const BY_ID := {", 1)[1].split("}", 1)[0]
     found = {match.group(1): match.group(2) for match in _NAME.finditer(block)}
     assert found == {poi_id: poi.name for poi_id, poi in POIS.items()}
 
