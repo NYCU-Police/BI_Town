@@ -78,12 +78,15 @@
 | `need_low` `#ff958c` | `panel` `#46402e` | 4.88:1 |
 | `ink` `#1c1916` | `button.png` 中心 `#f06733` | 5.58:1 |
 | `ink` `#1c1916` | `slot.png` 中心 `#8d977f` | 5.72:1 |
+| `text_dim` `#c4bba8` | `slot.png` 中心 `#8d977f`（停用按鈕） | 1.61:1 |
 | `ink` `#1c1916` | `panel.png` 中心 `#f38c4c` | 7.22:1 |
 | `name_mina` `#f09aa0` | `panel` `#46402e` | 4.84:1 |
 | `name_alex` `#6ec4d2` | `panel` `#46402e` | 5.16:1 |
 | `name_rin` `#f2c759` | `panel` `#46402e` | 6.44:1 |
 
 `name_mina` / `name_alex` 比 manifest 的 `#e8737a`、`#59b8c7` 亮一階，只為了在日誌的深褐底上達標。Rin 的 `#f2c759` 原本就過。`need_low` 與 `warn` 分開：低需求用較深的 `#ff958c`，失敗理由用 `#ffb4a8`。
+
+停用按鈕是例外：灰底 `slot.png` 配 `text_dim`，對比 1.61:1，低於 4.5:1。這組是為了跟橘色可用按鈕分開，不是正文。
 
 地圖地名用 `MapLabel`：字是 `text`，黑描邊。草地沒有單一底色，不列入上表。
 
@@ -94,14 +97,15 @@
 | theme 類型 | StyleBox | 圖與邊距 | 字 |
 | --- | --- | --- | --- |
 | `Panel` / `panel` | `StyleBoxTexture` | `panel_bg.png`。texture margin 四邊 2，content margin 12。中心 `TILE` | 子節點繼承 `text` |
-| `Button` 的 normal / hover / pressed / disabled / focus | `StyleBoxTexture` | `button.png`。texture margin 四邊 2，content margin 左右 4、上下 2。中心 `TILE` | `ink`，12px。沒有第二張圖，UI-1 四態先同一張；UI-4 才用 modulate 與下移 1px 分開 hover / pressed |
+| `Button` 的 normal / hover / pressed / focus | `StyleBoxTexture` | `button.png`。texture margin 四邊 2，content margin 左右 4、上下 2。中心 `TILE` | `ink`，12px。沒有第二張圖，這三態先同一張；UI-4 才用 modulate 與下移 1px 分開 hover / pressed |
+| `Button` 的 disabled | `StyleBoxTexture` | `slot.png`，與 `Slot` 同一張。margin 四邊 3 | `text_dim`，12px。灰底，跟橘色可用按鈕分開 |
 | `Slot` / `panel` | `StyleBoxTexture` | `slot.png`。margin 四邊 3 | 格內數字 `ink` |
 | `SlotSelected` / `panel` | `StyleBoxTexture` | `panel.png`。margin 左 6、上 6、右 5、下 5 | 格內數字 `ink` |
 | `LineEdit` / normal、focus、read_only | `StyleBoxFlat` | 填 `bg`，邊 1px `#9b513c`，content margin 8,4 | 字 `text`，placeholder `text_dim`，12px |
 
 公開泡泡的 `Bubble` 留到 UI-3，這次的 theme 還沒有它。對話框與筆記就是 `Panel`，吃 `panel_bg.png`。
 
-`hud.tscn` 不再內嵌 StyleBox。程式建的對話框、筆記、靜音鍵與「出示」不再自己上色。靜音與「出示」是 `Button`，字是 `ink`。
+`hud.tscn` 不再內嵌 StyleBox。程式建的對話框、筆記、靜音鍵與「出示」不再自己上色。靜音與「出示」是 `Button`，可用時字是 `ink`，停用時字是 `text_dim`、底是 `slot.png`。
 
 日誌 BBCode 的說話用 `text`，移動與心聲用 `text_dim`。居民名字用上面的 `name_mina` / `name_alex` / `name_rin`。
 
