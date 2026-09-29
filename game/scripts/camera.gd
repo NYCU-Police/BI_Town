@@ -4,7 +4,7 @@ extends Camera2D
 ## on a 1280×720 window. Drag to look around; space snaps back.
 
 const MAP := Vector2(576, 448)
-const HUD_WIDTH := 360.0
+const HUD_WIDTH := 0.0
 const MIN_ZOOM := 1
 const MAX_ZOOM := 4
 const DEFAULT_ZOOM := 3

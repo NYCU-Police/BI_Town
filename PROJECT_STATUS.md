@@ -5,11 +5,11 @@
 ## 1. 專案是什麼
 
 - 名稱：BI_Town（Behavioral Intelligence Town）。版本常數在 `backend/app/config.py` 的 `VERSION = "0.1.0"`。
-- 類型：AI-native social simulation。預設大腦是行程表，不是 LLM。`BRAIN_MODE=llm` 才改走本機模型。正式站預設仍是 `rules`；要開見 `docs/DEPLOY.md`。
+- 類型：AI-native social simulation。程式預設大腦是行程表，不是 LLM。`BRAIN_MODE=llm` 才改走本機模型。正式站現在跑的是 `llm`（日誌有「（想）」、Rin 在場）。程式預設仍是 `rules`；改模式見 `docs/DEPLOY.md`。
 - 架構：server-authoritative。World state 的唯一來源是 FastAPI backend。Godot client 只渲染 server 送來的狀態，不自行推進時鐘、不決定 NPC 去向。
 - World 存在 process 記憶體（`backend/app/state.py` 的 `World` singleton）。重啟即重置。Postgres 與 Redis 只在 Docker Compose 裡待命，backend 程式尚未連線。
 - 開局：Day 1、08:00。`rules` 只有 Mina、Alex，走行程表。`BRAIN_MODE=llm` 改為 Mina、Alex、Rin，三人都從自己的家出發，決策打本機 Ollama。地點是下面九個 POI，沒有共用的 `home`。
-- 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`（含 `version`、`git_commit`、`deployed_at`、`brain_mode`）。部署步驟與回滾見 `docs/DEPLOY.md`。合併進 `main` 且 CI 成功就會部署，世界回到 Day 1 08:00。正式站的 `BRAIN_MODE` 仍是 `rules`，程式預設也是 `rules`。
+- 正式站：https://bitown.aicanhelp.app （Cloudflare Tunnel）。健康檢查：`/api/health`（含 `version`、`git_commit`、`deployed_at`、`brain_mode`）。部署步驟與回滾見 `docs/DEPLOY.md`。合併進 `main` 且 CI 成功就會部署，世界回到 Day 1 08:00。正式站的 `BRAIN_MODE` 現在是 `llm`。程式預設仍是 `rules`。
 
 ## 1.1 已合併的謎題（PR1–PR3）
 
@@ -43,9 +43,9 @@
 
 ## 1.2 rules 與 llm 差在哪
 
-兩邊共用同一個時鐘、同一套案件、同一份信任與筆記。時鐘預設每真實秒 1 遊戲分鐘，整天都會走完，沒有鎮民大會。
+兩邊共用同一個時鐘、同一套案件、同一份信任與筆記。時鐘預設每真實秒 1 遊戲分鐘，整天都會走完，沒有鎮民大會。正式站主機現在是 `llm`。表裡的「預設」指程式與測試，不是正式站。
 
-| | `rules`（預設，正式站現在就是這個） | `llm` |
+| | `rules`（程式預設，測試固定這個） | `llm`（正式站現在是這個） |
 | --- | --- | --- |
 | 居民 | Mina、Alex，行程表在 `fake_agent.py` | Mina、Alex、Rin。Rin 只在這個模式出現 |
 | 決策 | `tick()` 內：倒下 → 手上有食物且飢餓低於門檻 → 否則行程。接著移動、需求、時鐘 | 另一個 async worker 呼叫 Ollama。`tick()` 只套用已經回來的決定，不把模型呼叫算進這一秒。倒下時不採用模型的移動 |

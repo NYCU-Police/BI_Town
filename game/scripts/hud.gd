@@ -7,30 +7,30 @@ signal dialogue_target_changed
 const _Places := preload("res://scripts/place_names.gd")
 ## Same line as the server's hungry / exhausted / lonely marks.
 const _LOW_NEED := 30
-const _SIDE_W := 360.0
-const _EDGE := 16.0
-const _HOTBAR_TOP := 176.0
-const _DIALOGUE_H := 192.0
-const _DIALOGUE_GAP := 8.0
-const _DIALOGUE_PREF_RIGHT := 480.0
-const _INSPECT_HOME := Rect2(16, 16, 204, 96)
-const _INSPECT_ASIDE := Rect2(352, 56, 204, 96)
+const _HINT := "點地點移動　1–3 工具　4 使用　E 撿　G 給予　Q 切換　N 筆記"
+const _IDLE_PLACEHOLDER := "點一位居民，再打字　N 筆記"
+const _DIALOGUE_RECT := Rect2(16, 496, 848, 144)
+const _NOTEBOOK_RECT := Rect2(904, 48, 360, 392)
+const _LOG_RECT := Rect2(944, 48, 320, 280)
+const _INPUT_RECT := Rect2(26, 600, 828, 32)
+const _LOG_BUTTON_RECT := Rect2(880, 496, 72, 24)
+const _MOVE_EVENTS := ["left", "entered", "activity"]
+const _ITEM_EVENTS := ["ate", "gave", "picked_up"]
 
-@onready var _title_label: Label = %Title
 @onready var _build_label: Label = %BuildLabel
 @onready var _time_label: Label = %TimeLabel
 @onready var _status_label: Label = %StatusLabel
-@onready var _agents_label: Label = %AgentsLabel
 @onready var _event_log: RichTextLabel = %EventLog
-@onready var _needs_label: Label = %NeedsLabel
+@onready var _hunger_label: Label = %HungerLabel
+@onready var _energy_label: Label = %EnergyLabel
+@onready var _social_label: Label = %SocialLabel
 @onready var _intent_label: Label = %IntentLabel
-@onready var _inspect: Panel = %Inspect
-@onready var _inspect_name: Label = %InspectName
-@onready var _inspect_hunger: Label = %InspectHunger
-@onready var _inspect_energy: Label = %InspectEnergy
-@onready var _inspect_social: Label = %InspectSocial
 @onready var _mute_button: Button = %MuteButton
-@onready var _event_log_toggle: Button = %EventLogToggle
+@onready var _log_button: Button = %LogButton
+@onready var _move_button: Button = %MoveButton
+@onready var _log_drawer: Panel = $LogDrawer
+@onready var _bottom_bar: Panel = $BottomBar
+@onready var _bottom_box: VBoxContainer = $BottomBar/VBox
 
 var _slots: Array[Panel] = []
 
@@ -41,6 +41,10 @@ var _said_hex := ""
 var _thought_hex := ""
 var _move_hex := ""
 var _dialogue: Panel
+var _dialogue_name: Label
+var _talk_hunger: Label
+var _talk_energy: Label
+var _talk_social: Label
 var _dialogue_log: RichTextLabel
 var _dialogue_status: Label
 var _dialogue_line: LineEdit
@@ -55,6 +59,11 @@ var _waiting := false
 var _wait_name := ""
 var _dot_phase := 0
 var _dot_accum := 0.0
+var _seen_name := ""
+var _seen_hunger := 0
+var _seen_energy := 0
+var _seen_social := 0
+var _seen_ready := false
 
 
 func _ready() -> void:
@@ -62,15 +71,15 @@ func _ready() -> void:
 	_cache_theme_colors()
 	_event_log.meta_clicked.connect(_on_log_meta)
 	_mute_button.pressed.connect(_toggle_mute)
-	_event_log_toggle.pressed.connect(_toggle_event_log)
+	_log_button.pressed.connect(_toggle_event_log)
+	_move_button.pressed.connect(_toggle_movement)
+	_bottom_box.minimum_size_changed.connect(_fit_bottom_bar)
 	get_viewport().size_changed.connect(_layout_chrome)
 	set_connection(false)
-	_title_label.text = "BI_Town"
 	_render_identity(_read_local_frontend_commit(), "", "", false)
-	_time_label.text = "Day — --:--"
-	_agents_label.text = "Agents: 0"
-	_needs_label.text = "Hunger —  Energy —  Social —"
+	_time_label.text = "Day —  --:--"
 	_intent_label.text = ""
+	_intent_label.visible = false
 	set_hotbar([
 		{"content_id": "", "count": 0, "selected": false},
 		{"content_id": "", "count": 0, "selected": false},
@@ -91,7 +100,6 @@ func apply_snapshot(data: Dictionary) -> void:
 		for agent in agents:
 			if typeof(agent) == TYPE_DICTIONARY:
 				_remember_agent(agent)
-		_agents_label.text = "Agents: %s" % agents.size()
 	else:
 		push_error("world_snapshot.agents is not an array")
 
@@ -121,8 +129,6 @@ func apply_agent_update(data: Dictionary) -> void:
 	for agent in agents:
 		if typeof(agent) == TYPE_DICTIONARY:
 			_remember_agent(agent)
-	if not _agent_names.is_empty():
-		_agents_label.text = "Agents: %s" % _agent_names.size()
 
 
 func apply_event(data: Dictionary) -> void:
@@ -131,10 +137,10 @@ func apply_event(data: Dictionary) -> void:
 
 func set_connection(online: bool) -> void:
 	if online:
-		_status_label.text = "Server  ● Online"
+		_status_label.text = "● 已連線"
 		_status_label.theme_type_variation = "Accent"
 	else:
-		_status_label.text = "Server  ● Offline"
+		_status_label.text = "● 離線"
 		_status_label.theme_type_variation = "Warn"
 
 
@@ -247,12 +253,6 @@ func _apply_health_text(frontend: String, text: String) -> void:
 		_render_identity(frontend, "unknown", "unknown", true)
 		return
 	var data: Dictionary = parsed
-	var service := str(data.get("service", "BI_Town"))
-	var version := str(data.get("version", ""))
-	if version.is_empty():
-		_title_label.text = service
-	else:
-		_title_label.text = "%s v%s" % [service, version]
 	var backend := str(data.get("git_commit", "unknown")).strip_edges()
 	if backend.is_empty():
 		backend = "unknown"
@@ -262,17 +262,22 @@ func _apply_health_text(frontend: String, text: String) -> void:
 	_render_identity(frontend, backend, deployed, true)
 
 
-func _render_identity(frontend: String, backend: String, deployed: String, settled: bool) -> void:
+func _render_identity(frontend: String, backend: String, _deployed: String, settled: bool) -> void:
 	if frontend.is_empty():
 		frontend = "unknown"
 	var backend_text := backend if not backend.is_empty() else "…"
-	var deployed_text := deployed if not deployed.is_empty() else "…"
-	_build_label.text = "frontend %s\nbackend %s\ndeployed %s" % [
-		_short_commit(frontend),
-		_short_commit(backend_text),
-		deployed_text,
-	]
-	_build_label.theme_type_variation = "Accent" if settled and frontend != backend else "Muted"
+	var mismatch := (
+		settled
+		and frontend != "unknown"
+		and backend_text != "unknown"
+		and backend_text != "…"
+		and frontend != backend_text
+	)
+	_build_label.visible = mismatch
+	if not mismatch:
+		return
+	_build_label.theme_type_variation = "Accent"
+	_build_label.text = "%s / %s" % [_short_commit(frontend), _short_commit(backend_text)]
 
 
 func _short_commit(commit: String) -> String:
@@ -326,28 +331,23 @@ func _clear_slot_icon(host: Control) -> void:
 
 
 func set_needs(hunger: int, energy: int, social: int) -> void:
-	_needs_label.text = "Hunger %d  Energy %d  Social %d" % [hunger, energy, social]
+	_paint_need(_hunger_label, "飢餓", hunger)
+	_paint_need(_energy_label, "體力", energy)
+	_paint_need(_social_label, "社交", social)
 
 
 func show_intent_reason(reason: String) -> void:
 	_intent_label.text = reason
+	_intent_label.visible = not reason.is_empty()
 
 
 func show_inspect(agent_name: String, hunger: int, energy: int, social: int) -> void:
-	_inspect.visible = true
-	_place_inspect()
-	_inspect_name.text = agent_name
-	_paint_need(_inspect_hunger, "Hunger", hunger)
-	_paint_need(_inspect_energy, "Energy", energy)
-	_paint_need(_inspect_social, "Social", social)
-
-
-func _place_inspect() -> void:
-	var rect := _INSPECT_ASIDE if _notebook != null and _notebook.visible else _INSPECT_HOME
-	_inspect.offset_left = rect.position.x
-	_inspect.offset_top = rect.position.y
-	_inspect.offset_right = rect.position.x + rect.size.x
-	_inspect.offset_bottom = rect.position.y + rect.size.y
+	_seen_name = agent_name
+	_seen_hunger = hunger
+	_seen_energy = energy
+	_seen_social = social
+	_seen_ready = true
+	_apply_talk_needs()
 
 
 func _paint_need(label: Label, title: String, value: int) -> void:
@@ -355,9 +355,23 @@ func _paint_need(label: Label, title: String, value: int) -> void:
 	label.theme_type_variation = "NeedLow" if value < _LOW_NEED else ""
 
 
+func _apply_talk_needs() -> void:
+	if _talk_hunger == null:
+		return
+	var matched := _seen_ready and _dialogue_name != null and _dialogue_name.text == _seen_name
+	_talk_hunger.visible = matched
+	_talk_energy.visible = matched
+	_talk_social.visible = matched
+	if not matched:
+		return
+	_paint_need(_talk_hunger, "飢餓", _seen_hunger)
+	_paint_need(_talk_energy, "體力", _seen_energy)
+	_paint_need(_talk_social, "社交", _seen_social)
+
+
 func _set_clock(data: Dictionary) -> void:
 	if data.has("day") and data.has("time"):
-		_time_label.text = "Day %d — %s" % [int(data["day"]), data["time"]]
+		_time_label.text = "Day %d  %s" % [int(data["day"]), data["time"]]
 
 
 func _remember_agent(agent: Dictionary) -> void:
@@ -374,7 +388,15 @@ func _append_event(data: Dictionary) -> void:
 	if not _event_log.has_method("add_event"):
 		push_error("EventLog is missing add_event()")
 		return
-	_event_log.add_event(_format_event(data))
+	_event_log.add_event(_format_event(data), _event_category(action))
+
+
+func _event_category(action: String) -> String:
+	if action in _ITEM_EVENTS:
+		return "item"
+	if action in _MOVE_EVENTS:
+		return "move"
+	return "talk"
 
 
 func _escape_bbcode(line: String) -> String:
@@ -425,10 +447,8 @@ const _ITEM_NAMES := {
 func _format_event(data: Dictionary) -> String:
 	var action := str(data.get("event", ""))
 	var template := str(_EVENT_TEMPLATES.get(action, "{time} {name} {action}"))
-	var move := action in ["left", "entered", "activity", "ate", "gave", "picked_up", "produced"]
-	var color := _move_hex if (move or action == "conversing") else (
-		_thought_hex if action == "thought" else _said_hex
-	)
+	var dim := action == "thought" or action in _MOVE_EVENTS
+	var color := _thought_hex if action == "thought" else (_move_hex if action in _MOVE_EVENTS else _said_hex)
 	var target_id := str(data.get("target_agent_id", ""))
 	var arrow := ""
 	if action == "said" and not target_id.is_empty():
@@ -449,7 +469,7 @@ func _format_event(data: Dictionary) -> String:
 	var line := template
 	for key in fields:
 		line = line.replace("{%s}" % key, str(fields[key]))
-	if move:
+	if dim or action in _ITEM_EVENTS:
 		return "[font_size=12]%s[/font_size]" % line
 	return line
 
@@ -458,15 +478,6 @@ func _item_label(item_id: String) -> String:
 	if item_id.is_empty():
 		return ""
 	return str(_ITEM_NAMES.get(item_id, item_id))
-
-
-func _join_header(parts: Array) -> String:
-	var glued := ""
-	for index in parts.size():
-		if index > 0:
-			glued += _tone("\u00A0", _said_hex)
-		glued += parts[index]
-	return glued
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -482,25 +493,33 @@ func _toggle_notebook() -> void:
 		return
 	_notebook.visible = not _notebook.visible
 	if _notebook.visible:
-		_inspect.visible = false
-	_place_inspect()
+		_log_drawer.visible = false
 
 
 func _toggle_event_log() -> void:
-	_event_log.visible = not _event_log.visible
-	_event_log_toggle.text = "事件日誌 ▾" if _event_log.visible else "事件日誌"
+	_log_drawer.visible = not _log_drawer.visible
+	if _log_drawer.visible and _notebook != null:
+		_notebook.visible = false
+
+
+func _toggle_movement() -> void:
+	if not _event_log.has_method("set_movement_visible"):
+		return
+	var show := _move_button.text == "移動"
+	_move_button.text = "移動 ▾" if show else "移動"
+	_event_log.set_movement_visible(show)
 
 
 func blocks_pointer(point: Vector2) -> bool:
-	var nodes: Array[Control] = [$Panel, $HotbarPanel]
+	var nodes: Array[Control] = [$TopBar, _bottom_bar, _log_button, _log_drawer]
 	if _dialogue != null:
 		nodes.append(_dialogue)
+	if _dialogue_line != null:
+		nodes.append(_dialogue_line)
 	if _notebook != null:
 		nodes.append(_notebook)
-	if _inspect != null:
-		nodes.append(_inspect)
 	for node in nodes:
-		if node.visible and node.get_global_rect().has_point(point):
+		if node != null and node.visible and node.get_global_rect().has_point(point):
 			return true
 	return false
 
@@ -573,28 +592,35 @@ func _build_notebook() -> void:
 	_notebook = Panel.new()
 	_notebook.name = "Notebook"
 	_notebook.visible = false
-	_notebook.anchor_left = 0.0
-	_notebook.anchor_top = 0.0
-	_notebook.anchor_right = 0.0
-	_notebook.anchor_bottom = 1.0
 	_notebook.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_notebook)
 
 	var title := Label.new()
 	title.text = "筆記"
-	title.offset_left = 10.0
+	title.theme_type_variation = "Title"
+	title.offset_left = 12.0
 	title.offset_top = 8.0
-	title.offset_right = 300.0
-	title.offset_bottom = 28.0
+	title.offset_right = 120.0
+	title.offset_bottom = 32.0
 	_notebook.add_child(title)
+
+	var hint := Label.new()
+	hint.text = _HINT
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.anchor_right = 1.0
+	hint.offset_left = 12.0
+	hint.offset_top = 36.0
+	hint.offset_right = -12.0
+	hint.offset_bottom = 72.0
+	_notebook.add_child(hint)
 
 	var scroll := ScrollContainer.new()
 	scroll.anchor_right = 1.0
 	scroll.anchor_bottom = 1.0
-	scroll.offset_left = 10.0
-	scroll.offset_top = 32.0
-	scroll.offset_right = -10.0
-	scroll.offset_bottom = -10.0
+	scroll.offset_left = 12.0
+	scroll.offset_top = 76.0
+	scroll.offset_right = -12.0
+	scroll.offset_bottom = -12.0
 	scroll.mouse_filter = Control.MOUSE_FILTER_STOP
 	_notebook.add_child(scroll)
 	_note_box = VBoxContainer.new()
@@ -606,23 +632,44 @@ func _build_notebook() -> void:
 func _build_dialogue() -> void:
 	var panel := Panel.new()
 	panel.name = "Dialogue"
-	panel.anchor_left = 0.0
-	panel.anchor_top = 1.0
-	panel.anchor_right = 0.0
-	panel.anchor_bottom = 1.0
+	panel.visible = false
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(panel)
 	_dialogue = panel
+
+	var header := HBoxContainer.new()
+	header.anchor_right = 1.0
+	header.offset_left = 12.0
+	header.offset_top = 8.0
+	header.offset_right = -12.0
+	header.offset_bottom = 36.0
+	header.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(header)
+
+	_dialogue_name = Label.new()
+	_dialogue_name.theme_type_variation = "Title"
+	_dialogue_name.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	header.add_child(_dialogue_name)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(spacer)
+	_talk_hunger = _need_label()
+	_talk_energy = _need_label()
+	_talk_social = _need_label()
+	header.add_child(_talk_hunger)
+	header.add_child(_talk_energy)
+	header.add_child(_talk_social)
 
 	_dialogue_log = RichTextLabel.new()
 	_dialogue_log.bbcode_enabled = false
 	_dialogue_log.scroll_following = true
 	_dialogue_log.anchor_right = 1.0
 	_dialogue_log.anchor_bottom = 1.0
-	_dialogue_log.offset_left = 10.0
-	_dialogue_log.offset_top = 8.0
-	_dialogue_log.offset_right = -10.0
-	_dialogue_log.offset_bottom = -72.0
+	_dialogue_log.offset_left = 12.0
+	_dialogue_log.offset_top = 40.0
+	_dialogue_log.offset_right = -12.0
+	_dialogue_log.offset_bottom = -68.0
 	_dialogue_log.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.add_child(_dialogue_log)
 
@@ -630,39 +677,56 @@ func _build_dialogue() -> void:
 	_dialogue_status.anchor_top = 1.0
 	_dialogue_status.anchor_right = 1.0
 	_dialogue_status.anchor_bottom = 1.0
-	_dialogue_status.offset_left = 10.0
-	_dialogue_status.offset_top = -68.0
-	_dialogue_status.offset_right = -10.0
-	_dialogue_status.offset_bottom = -44.0
+	_dialogue_status.offset_left = 12.0
+	_dialogue_status.offset_top = -64.0
+	_dialogue_status.offset_right = -12.0
+	_dialogue_status.offset_bottom = -40.0
 	panel.add_child(_dialogue_status)
 
 	_dialogue_line = LineEdit.new()
-	_dialogue_line.anchor_top = 1.0
-	_dialogue_line.anchor_right = 1.0
-	_dialogue_line.anchor_bottom = 1.0
-	_dialogue_line.offset_left = 10.0
-	_dialogue_line.offset_top = -40.0
-	_dialogue_line.offset_right = -10.0
-	_dialogue_line.offset_bottom = -8.0
-	_dialogue_line.placeholder_text = "點一位居民，再打字"
+	_dialogue_line.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dialogue_line.placeholder_text = _IDLE_PLACEHOLDER
 	_dialogue_line.text_submitted.connect(_on_dialogue_submitted)
-	panel.add_child(_dialogue_line)
+	add_child(_dialogue_line)
+
+
+func _need_label() -> Label:
+	var label := Label.new()
+	label.visible = false
+	return label
 
 
 func _layout_chrome() -> void:
-	var width := get_viewport().get_visible_rect().size.x
-	var limit := width - _SIDE_W - _EDGE
-	if _dialogue != null:
-		_dialogue.offset_left = _EDGE
-		_dialogue.offset_right = min(_DIALOGUE_PREF_RIGHT, limit)
-		_dialogue.offset_bottom = -(_HOTBAR_TOP + _DIALOGUE_GAP)
-		_dialogue.offset_top = _dialogue.offset_bottom - _DIALOGUE_H
-	if _notebook != null:
-		_notebook.offset_left = _EDGE
-		_notebook.offset_top = 56.0
-		_notebook.offset_right = 336.0
-		var dialogue_top := -(_HOTBAR_TOP + _DIALOGUE_GAP + _DIALOGUE_H)
-		_notebook.offset_bottom = dialogue_top - _DIALOGUE_GAP
+	_place(_dialogue, _DIALOGUE_RECT)
+	_place(_notebook, _NOTEBOOK_RECT)
+	_place(_log_drawer, _LOG_RECT)
+	_place(_log_button, _LOG_BUTTON_RECT)
+	_place(_dialogue_line, _INPUT_RECT)
+	_fit_bottom_bar()
+
+
+func _place(node: Control, rect: Rect2) -> void:
+	if node == null:
+		return
+	node.anchor_left = 0.0
+	node.anchor_top = 0.0
+	node.anchor_right = 0.0
+	node.anchor_bottom = 0.0
+	node.offset_left = rect.position.x
+	node.offset_top = rect.position.y
+	node.offset_right = rect.position.x + rect.size.x
+	node.offset_bottom = rect.position.y + rect.size.y
+
+
+func _fit_bottom_bar() -> void:
+	var height := _bottom_box.get_combined_minimum_size().y + _bottom_box.offset_top - _bottom_box.offset_bottom
+	_bottom_bar.offset_top = _bottom_bar.offset_bottom - height
+
+
+func _sync_dialogue_chrome() -> void:
+	if _dialogue == null:
+		return
+	_dialogue.visible = not _dialogue_speaker.is_empty()
 
 
 func _cache_theme_colors() -> void:
@@ -695,7 +759,10 @@ func _process(delta: float) -> void:
 func focus_resident(agent_id: String, agent_name: String) -> void:
 	_agent_names[agent_id] = agent_name
 	_dialogue_speaker = agent_id
+	_dialogue_name.text = agent_name
 	_dialogue_line.placeholder_text = "跟%s說…" % agent_name
+	_sync_dialogue_chrome()
+	_apply_talk_needs()
 	_dialogue_line.grab_focus()
 	dialogue_target_changed.emit()
 
@@ -742,6 +809,15 @@ func _restore_dialogue(history: Variant) -> void:
 				var agent_name := str(_agent_names.get(speaker, speaker))
 				_talk_lines.append("%s對你說：%s" % [agent_name, reply])
 	_dialogue_speaker = bound
+	if bound.is_empty():
+		_dialogue_name.text = ""
+		_dialogue_line.placeholder_text = _IDLE_PLACEHOLDER
+	else:
+		var name := str(_agent_names.get(bound, bound))
+		_dialogue_name.text = name
+		_dialogue_line.placeholder_text = "跟%s說…" % name
+	_sync_dialogue_chrome()
+	_apply_talk_needs()
 	_refresh_dialogue()
 	dialogue_target_changed.emit()
 
