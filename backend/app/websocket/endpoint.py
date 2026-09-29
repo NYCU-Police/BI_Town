@@ -68,6 +68,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         snapshot.dialogue_history = history_payload(state.world, token)
         snapshot.notes = note_texts(state.world, token)
         snapshot.note_ids = note_ids(state.world, token)
+        snapshot.accused = token in state.world.accusations
+        if state.world.phase == "reveal":
+            snapshot.score = state.world.scores.get(token, 0)
         message = WorldSnapshotMessage(data=snapshot)
         await websocket.send_json(message.model_dump(exclude_none=True))
         if entered is not None or old_id is not None:
@@ -133,6 +136,9 @@ async def _handle_text(
         await websocket.send_json(_result(client_seq, False, "bad_intent"))
         return
     outcome = state.world.apply_intent(player_id, intent, client_seq)
+    from app.simulation.loop import push_round_notices
+
+    await push_round_notices()
     if outcome.superseded_seq is not None:
         await websocket.send_json(
             _result(outcome.superseded_seq, False, "superseded")

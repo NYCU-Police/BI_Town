@@ -3,6 +3,8 @@ extends CanvasLayer
 signal talk_submitted(text: String)
 signal note_presented(fact_id: String)
 signal dialogue_target_changed
+signal accuse_submitted(culprit_id: String, motive_id: String)
+signal next_round_submitted
 
 const _Places := preload("res://scripts/place_names.gd")
 ## Same line as the server's hungry / exhausted / lonely marks.
@@ -61,6 +63,16 @@ var _note_texts: PackedStringArray = PackedStringArray()
 var _note_fact_ids: PackedStringArray = PackedStringArray()
 var _confront_target := ""
 var _dialogue_speaker := ""
+var _assembly: Panel
+var _person_pick: OptionButton
+var _motive_pick: OptionButton
+var _assembly_body: RichTextLabel
+var _assembly_status: Label
+var _assembly_count: Label
+var _assembly_confirm: Button
+var _assembly_next: Button
+var _assembly_left := 0.0
+var _assembly_timing := false
 var _waiting := false
 var _wait_name := ""
 var _dot_phase := 0
@@ -105,6 +117,7 @@ func _ready() -> void:
 	_request_health()
 	_build_dialogue()
 	_build_notebook()
+	_build_assembly()
 	_log_drawer.modulate.a = 0.0
 	_layout_chrome()
 
@@ -123,6 +136,7 @@ func apply_snapshot(data: Dictionary) -> void:
 
 	_restore_dialogue(data.get("dialogue_history", []))
 	set_notes(data.get("notes", []), data.get("note_ids", []))
+	_restore_round(data)
 	if _event_log.has_method("clear_events"):
 		_event_log.clear_events()
 	var events: Variant = data.get("events", [])
@@ -542,6 +556,8 @@ func _toggle_movement() -> void:
 
 func blocks_pointer(point: Vector2) -> bool:
 	var nodes: Array[Control] = [$TopBar, _bottom_bar, _log_button, _log_drawer]
+	if _assembly != null:
+		nodes.append(_assembly)
 	if _dialogue != null:
 		nodes.append(_dialogue)
 	if _dialogue_line != null:
@@ -807,6 +823,10 @@ func _theme_hex(item: String) -> String:
 
 func _process(delta: float) -> void:
 	_pulse_needs(delta)
+	if _assembly_timing:
+		_assembly_left = max(0.0, _assembly_left - delta)
+		if _assembly_count != null:
+			_assembly_count.text = "剩下 %d 秒" % int(ceil(_assembly_left))
 	if not _waiting:
 		return
 	_dot_accum += delta
@@ -982,3 +1002,180 @@ func _pulse_needs(delta: float) -> void:
 			continue
 		var low := index < _need_levels.size() and _need_levels[index] < _LOW_NEED
 		label.modulate.a = alpha if low else 1.0
+
+
+func show_assembly(message: Dictionary) -> void:
+	if _assembly == null:
+		return
+	_fill_options(_person_pick, message.get("residents", []), "name", "id")
+	_fill_options(_motive_pick, message.get("motives", []), "label", "id")
+	_assembly_body.text = "鎮民大會。選出犯人與動機。"
+	_assembly_status.text = ""
+	_assembly_confirm.visible = true
+	_assembly_confirm.disabled = false
+	_person_pick.disabled = false
+	_motive_pick.disabled = false
+	_assembly_next.visible = false
+	_assembly.visible = true
+	_start_countdown(int(message.get("remaining_seconds", 90)))
+
+
+func mark_accused() -> void:
+	if _assembly == null:
+		return
+	_assembly_confirm.disabled = true
+	_person_pick.disabled = true
+	_motive_pick.disabled = true
+	_assembly_status.text = "等其他人"
+
+
+func show_reveal(message: Dictionary) -> void:
+	if _assembly == null:
+		return
+	var score := int(message.get("score", 0))
+	_assembly_body.text = "%s\n\n你的分數：%d" % [str(message.get("text", "")), score]
+	_assembly_status.text = ""
+	_assembly_confirm.visible = false
+	_assembly_next.visible = true
+	_assembly_next.disabled = false
+	_person_pick.visible = false
+	_motive_pick.visible = false
+	_assembly.visible = true
+	_start_countdown(int(message.get("remaining_seconds", 45)))
+
+
+func hide_assembly() -> void:
+	_assembly_timing = false
+	if _assembly != null:
+		_assembly.visible = false
+	if _person_pick != null:
+		_person_pick.visible = true
+	if _motive_pick != null:
+		_motive_pick.visible = true
+
+
+func _restore_round(data: Dictionary) -> void:
+	var phase := str(data.get("phase", "play"))
+	if phase == "assembly":
+		show_assembly(data)
+		if bool(data.get("accused", false)):
+			mark_accused()
+	elif phase == "reveal":
+		show_reveal(data)
+	else:
+		hide_assembly()
+
+
+func _start_countdown(seconds: int) -> void:
+	_assembly_left = float(seconds)
+	_assembly_timing = true
+	if _assembly_count != null:
+		_assembly_count.text = "剩下 %d 秒" % seconds
+
+
+func _fill_options(picker: OptionButton, rows: Variant, label_key: String, id_key: String) -> void:
+	picker.clear()
+	picker.visible = true
+	if typeof(rows) != TYPE_ARRAY:
+		return
+	for row in rows:
+		if typeof(row) != TYPE_DICTIONARY:
+			continue
+		picker.add_item(str(row.get(label_key, "")))
+		picker.set_item_metadata(picker.item_count - 1, str(row.get(id_key, "")))
+
+
+func _build_assembly() -> void:
+	_assembly = Panel.new()
+	_assembly.name = "Assembly"
+	_assembly.visible = false
+	_assembly.anchor_left = 0.5
+	_assembly.anchor_top = 0.5
+	_assembly.anchor_right = 0.5
+	_assembly.anchor_bottom = 0.5
+	_assembly.offset_left = -220.0
+	_assembly.offset_top = -180.0
+	_assembly.offset_right = 220.0
+	_assembly.offset_bottom = 180.0
+	_assembly.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#1c1916")
+	style.set_corner_radius_all(6)
+	_assembly.add_theme_stylebox_override("panel", style)
+	add_child(_assembly)
+
+	_assembly_body = RichTextLabel.new()
+	_assembly_body.offset_left = 16.0
+	_assembly_body.offset_top = 12.0
+	_assembly_body.offset_right = 424.0
+	_assembly_body.offset_bottom = 150.0
+	_assembly_body.scroll_active = true
+	_assembly_body.add_theme_color_override("default_color", Color("#f4f0e6"))
+	_assembly.add_child(_assembly_body)
+
+	_person_pick = _dark_option()
+	_person_pick.offset_top = 160.0
+	_person_pick.offset_bottom = 192.0
+	_assembly.add_child(_person_pick)
+	_motive_pick = _dark_option()
+	_motive_pick.offset_top = 200.0
+	_motive_pick.offset_bottom = 232.0
+	_assembly.add_child(_motive_pick)
+
+	_assembly_status = Label.new()
+	_assembly_status.offset_left = 16.0
+	_assembly_status.offset_top = 240.0
+	_assembly_status.offset_right = 220.0
+	_assembly_status.offset_bottom = 268.0
+	_assembly_status.add_theme_color_override("font_color", Color("#f4f0e6"))
+	_assembly.add_child(_assembly_status)
+
+	_assembly_count = Label.new()
+	_assembly_count.offset_left = 230.0
+	_assembly_count.offset_top = 240.0
+	_assembly_count.offset_right = 424.0
+	_assembly_count.offset_bottom = 268.0
+	_assembly_count.add_theme_color_override("font_color", Color("#f4f0e6"))
+	_assembly.add_child(_assembly_count)
+
+	_assembly_confirm = Button.new()
+	_assembly_confirm.text = "確認"
+	_assembly_confirm.offset_left = 16.0
+	_assembly_confirm.offset_top = 276.0
+	_assembly_confirm.offset_right = 140.0
+	_assembly_confirm.offset_bottom = 312.0
+	_assembly_confirm.pressed.connect(_submit_accusation)
+	_assembly.add_child(_assembly_confirm)
+
+	_assembly_next = Button.new()
+	_assembly_next.text = "下一局"
+	_assembly_next.visible = false
+	_assembly_next.offset_left = 16.0
+	_assembly_next.offset_top = 276.0
+	_assembly_next.offset_right = 140.0
+	_assembly_next.offset_bottom = 312.0
+	_assembly_next.pressed.connect(_submit_next_round)
+	_assembly.add_child(_assembly_next)
+
+
+func _dark_option() -> OptionButton:
+	var picker := OptionButton.new()
+	picker.offset_left = 16.0
+	picker.offset_right = 424.0
+	picker.add_theme_color_override("font_color", Color("#f4f0e6"))
+	picker.add_theme_color_override("font_hover_color", Color("#f4f0e6"))
+	return picker
+
+
+func _submit_accusation() -> void:
+	if _person_pick.item_count == 0 or _motive_pick.item_count == 0:
+		return
+	var culprit := str(_person_pick.get_item_metadata(_person_pick.selected))
+	var motive := str(_motive_pick.get_item_metadata(_motive_pick.selected))
+	accuse_submitted.emit(culprit, motive)
+
+
+func _submit_next_round() -> void:
+	_assembly_next.disabled = true
+	_assembly_status.text = "等這一局結束"
+	next_round_submitted.emit()

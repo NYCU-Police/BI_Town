@@ -21,6 +21,7 @@ services:
       DEPLOYED_AT: ${DEPLOYED_AT:-unknown}
       # rules is the public default. llm calls Ollama on the deploy host.
       BRAIN_MODE: ${BRAIN_MODE:-rules}
+      GAME_MINUTES_PER_REAL_SECOND: ${GAME_MINUTES_PER_REAL_SECOND:-0.4}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       LLM_MODEL: ${LLM_MODEL:-qwen3:14b}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-60}

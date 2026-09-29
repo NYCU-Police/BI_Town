@@ -12,6 +12,12 @@ func _ready() -> void:
 	_network.connection_changed.connect(_on_connection)
 	if _network.has_signal("notebook_received"):
 		_network.notebook_received.connect(_on_notebook)
+	if _network.has_signal("assembly_received"):
+		_network.assembly_received.connect(_on_assembly)
+	if _network.has_signal("reveal_received"):
+		_network.reveal_received.connect(_on_reveal)
+	if _network.has_signal("round_started"):
+		_network.round_started.connect(_on_round_started)
 
 
 func _on_snapshot(data: Dictionary) -> void:
@@ -22,6 +28,25 @@ func _on_snapshot(data: Dictionary) -> void:
 func _on_agent_update(data: Dictionary) -> void:
 	_world.apply_agent_update(data)
 	_hud.apply_agent_update(data)
+
+
+func _on_assembly(message: Dictionary) -> void:
+	if _hud.has_method("show_assembly"):
+		_hud.show_assembly(message)
+
+
+func _on_reveal(message: Dictionary) -> void:
+	if _hud.has_method("show_reveal"):
+		_hud.show_reveal(message)
+
+
+func _on_round_started(message: Dictionary) -> void:
+	if _hud.has_method("hide_assembly"):
+		_hud.hide_assembly()
+	if _hud.has_method("set_notice"):
+		_hud.set_notice(str(message.get("notice", "")))
+	if _world.has_method("set_notice"):
+		_world.set_notice(str(message.get("notice", "")))
 
 
 func _on_notebook(message: Dictionary) -> void:

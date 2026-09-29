@@ -7,6 +7,9 @@ signal connection_changed(online: bool)
 signal intent_resolved(client_seq: int, ok: bool, reason: String)
 signal dialogue_received(data: Dictionary)
 signal notebook_received(message: Dictionary)
+signal assembly_received(message: Dictionary)
+signal reveal_received(message: Dictionary)
+signal round_started(message: Dictionary)
 
 ## Desktop default. Web builds resolve the URL in _ready().
 @export var websocket_url: String = "ws://127.0.0.1:8000/ws"
@@ -139,6 +142,15 @@ func _handle_text(text: String) -> void:
 		return
 	if msg_type == "notebook":
 		notebook_received.emit(message)
+		return
+	if msg_type == "assembly_open":
+		assembly_received.emit(message)
+		return
+	if msg_type == "reveal":
+		reveal_received.emit(message)
+		return
+	if msg_type == "round_started":
+		round_started.emit(message)
 		return
 	var raw_data: Variant = message.get("data", {})
 	if typeof(raw_data) != TYPE_DICTIONARY:

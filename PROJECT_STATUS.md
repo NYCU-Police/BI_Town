@@ -177,7 +177,8 @@ Docker Compose: backend + postgres + redis + cloudflared
 Cloudflare Tunnel → https://bitown.aicanhelp.app
 ```
 
-- 模擬迴圈：`simulation_loop` 每 `SIMULATION_TICK_SECONDS`（1 秒）呼叫一次 `World.tick()`。`GAME_MINUTES_PER_REAL_SECOND`（預設 1.0，環境變數可蓋）用浮點累加，滿 1 才推進 1 遊戲分鐘。還沒滿的 tick 只移動正在走路的人。
+- 模擬迴圈：`simulation_loop` 每 `SIMULATION_TICK_SECONDS`（1 秒）呼叫一次 `World.tick()`。`GAME_MINUTES_PER_REAL_SECOND`（預設 0.4，環境變數可蓋）用浮點累加，滿 1 才推進 1 遊戲分鐘。還沒滿的 tick 只移動正在走路的人。
+- `llm` 模式走到 18:00 開鎮民大會：時鐘停在 18:00，需求仍結算，居民改往廣場。玩家用 `accuse` 指認人與動機，不呼叫模型。揭曉後 45 真實秒，或所有在線玩家都按下一局，一起進入下一天 08:00，私人進度清空、token 保留。`rules` 不開大會，時鐘照常走過 18:00。正式站要等 PR4 部署成功後，由人把 `deploy/.env` 的 `BRAIN_MODE` 改成 `llm` 再重新部署。見 `docs/DEPLOY.md`。
 - `World.tick()` 在預設 `rules` 的順序：NPC 先看是否倒下，再看手上有沒有食物、飢餓是否低於門檻，否則才套行程 → 移動 walking agent → 需求結算 → 推進時鐘。`llm` 不套這條優先序；決策在另一個 async worker 裡跑，`tick()` 只套用已經回來的結果。需求照樣結算，倒下時不採用 LLM 的移動。
 - Agent 狀態只有 `idle` 與 `walking`。行程命中時從 idle 改為 walking，並記一筆 `left`。抵達 POI（距離 ≤ `ARRIVAL_DISTANCE_THRESHOLD` 或 ≤ 本 tick 步長）後改回 idle，記一筆 `entered`。
 - WebSocket 是雙向的。連線會生成 `player_<conn_id>`，斷線就從世界上移除。私人進度掛在伺服器發的 `player_token` 上。客戶端可送 `intent`，伺服器回 `intent_result` 後立刻廣播變動。見 `docs/ADR/0005-bidirectional-websocket.md`。
@@ -226,6 +227,7 @@ POI 座標（`backend/app/simulation/poi.py`、`game/scripts/world.gd`、`game/s
 | `simulation/world.py` | `World`、`tick()`、`apply_intent()`。同步、可單測。 |
 | `simulation/player_talk.py` | 玩家 `talk` 與 `present_evidence`：過濾、允許清單、單播回覆與筆記。 |
 | `simulation/gossip.py` | 居民之間複製問過的標籤；犯人避開，不呼叫模型。 |
+| `simulation/assembly.py` | 18:00 大會、指認、揭曉與下一局。不呼叫模型。`rules` 不開大會。 |
 | `simulation/job_queue.py` | 玩家對話優先於居民工作的單工佇列。 |
 | `simulation/fake_agent.py` | 行程表、朝目標移動、`left` / `entered`。無 LLM。 |
 | `simulation/poi.py` | POI id、名稱、座標。 |

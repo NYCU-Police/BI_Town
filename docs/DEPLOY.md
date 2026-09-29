@@ -113,6 +113,10 @@ curl -fsS https://bitown.aicanhelp.app/api/health
 
 `brain_mode` 應為 `llm`。每次重建容器，世界都會回到 Day 1 08:00。
 
+PR4 部署成功之後，由人在主機把 `BRAIN_MODE` 改成 `llm` 並用上面的方式重新部署。改之前正式站仍是 `rules`。`rules` 不會在 18:00 開鎮民大會，時鐘會照常走過 18:00。
+
+時鐘預設每個真實秒 0.4 遊戲分鐘（08:00 到 18:00 約 25 真實分鐘）。要在主機上改速度，於 `deploy/.env` 加上 `GAME_MINUTES_PER_REAL_SECOND`（正數），然後重新部署。沒寫或不是正數時用 0.4。
+
 退回：把 `BRAIN_MODE` 改回 `rules`（或刪掉該行；compose 預設就是 `rules`），再用上面的方式重新部署。之後 `/api/health` 的 `brain_mode` 應為 `rules`。
 
 ## 回滾
