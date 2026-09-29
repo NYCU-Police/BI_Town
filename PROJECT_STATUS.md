@@ -1,6 +1,6 @@
 # BI_Town 專案狀態
 
-給新的 AI 助手對話或新加入的隊友接手。描述的是 `origin/main` 在 PR #38 合併之後的現況（v0.1.0），不是目標產品，也不包含尚未合併的 PR #39。
+給新的 AI 助手對話或新加入的隊友接手。描述的是 `origin/main` 在 PR #39 合併之後的現況（v0.1.0），不是目標產品。
 
 ## 1. 專案是什麼
 
@@ -21,8 +21,7 @@
 | #36 PR1.1 | `66f60d7` | 玩家句子包在 `<player>`，歷史包在 `<history>`。`talk_log` 最多 200 則。dossier 超過 500 個 token 時丟掉最久沒出現的。斷線清掉 `conversing` 並廣播 `conversing_ended`。重連用 `dialogue_history` 把對話框補回來。 |
 | #37 PR2 | `9e6adad` | 三個內建案件輪替、信任、允許清單、私人筆記、廣場公告。 |
 | #38 PR3 | `654e2a1` | 出示筆記對質、八卦只傳標籤、犯人避開。 |
-
-尚未合併：`feat/mystery-pr4` 是 PR #39，等玩法方向確認。它不在這份現況裡。不要把它當成已上線，也不要在沒有新指示時合併或接著開下一號功能 PR。
+| #39 PR4 | `c4a17c6` | 18:00 鎮民大會、指認、揭曉與下一局。時鐘預設每真實秒 0.4 遊戲分鐘。揭曉停留 `REVEAL_HOLD_SECONDS` 45 真實秒。不呼叫模型。`rules` 不開大會。 |
 
 ### 案件、信任、筆記（PR2）
 
@@ -43,7 +42,7 @@
 
 ## 1.2 rules 與 llm 差在哪
 
-兩邊共用同一個時鐘、同一套案件、同一份信任與筆記。時鐘預設每真實秒 1 遊戲分鐘，整天都會走完，沒有鎮民大會。正式站主機現在是 `llm`。表裡的「預設」指程式與測試，不是正式站。
+兩邊共用同一個時鐘、同一套案件、同一份信任與筆記。時鐘預設每真實秒 0.4 遊戲分鐘。`llm` 走到 18:00 開鎮民大會，時鐘停住；`rules` 不開大會，時鐘照常走過 18:00。正式站主機現在是 `llm`。表裡的「預設」指程式與測試，不是正式站。
 
 | | `rules`（程式預設，測試固定這個） | `llm`（正式站現在是這個） |
 | --- | --- | --- |
@@ -52,6 +51,7 @@
 | `talk` / `present_evidence` | 立刻 `npc_unavailable`，不進佇列、不呼叫模型、不記標籤、不解鎖事實 | 進對話佇列，玩家工作優先。模型只負責說法，事實只能從允許清單來 |
 | 八卦與避開 | 函式仍會跑，但沒有成功的對話就沒有標籤，避開不會開始 | 標籤會記、會傳、會改寫犯人的下一步 |
 | 事件 | `left` / `entered` 與物品事件 | 另外有 `said`、`thought`，內容先轉繁體 |
+| 鎮民大會 | 不開。時鐘走過 18:00 | 18:00 開大會。指認窗 90 真實秒，揭曉 `REVEAL_HOLD_SECONDS` 45 真實秒，或全員按下一局。下一局是下一天 08:00，筆記清空 |
 | 測試 | `tests/conftest.py` 把 `BRAIN_MODE` 設成 `rules` | 個別測試再改成 `llm` |
 
 ## 1.3 `config.py` 的名稱與預設
@@ -64,9 +64,13 @@
 | --- | --- |
 | `SIMULATION_TICK_SECONDS` | `1.0` |
 | `GAME_MINUTES_PER_TICK` | `1`（舊常數；實際速度看下面的函式） |
-| `game_minutes_per_real_second()` | 環境變數 `GAME_MINUTES_PER_REAL_SECOND`。空白、非整數或 ≤ 0 都回 `1.0`。正數才採用。main 的程式預設是 1.0 |
+| `game_minutes_per_real_second()` | 環境變數 `GAME_MINUTES_PER_REAL_SECOND`。空白、無法轉成數字，或 ≤ 0，都回 `0.4`。正數才採用。程式預設是 0.4 |
 | `SIMULATION_LOOP_ENABLED` | `True`（測試會關掉） |
 | `INITIAL_DAY` / `INITIAL_TIME` | `1` / `"08:00"` |
+| `ASSEMBLY_TIME` | `"18:00"`。只有 `llm` 會在跨過這個時刻時停鐘並開大會 |
+| `ACCUSE_WINDOW_SECONDS` | `90`。指認階段的真實秒數，到點仍揭曉 |
+| `REVEAL_HOLD_SECONDS` | `45`。揭曉停留的真實秒數；全員按下一局會提早結束 |
+| `SCORE_CULPRIT` / `SCORE_MOTIVE` | `60` / `40`。指錯的那一項是 0，人與動機都對是 100 |
 | `current_brain_mode()` | 環境變數 `BRAIN_MODE`，只接受 `rules` 或 `llm`，其他回到 `rules` |
 | `current_llm_think()` | 環境變數 `LLM_THINK` 為 `1` / `true` / `yes` / `on` 才開，否則關 |
 | `STATIC_WEB_DIR` | 環境變數，空字串表示只提供 API |
@@ -178,7 +182,7 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
 ```
 
 - 模擬迴圈：`simulation_loop` 每 `SIMULATION_TICK_SECONDS`（1 秒）呼叫一次 `World.tick()`。`GAME_MINUTES_PER_REAL_SECOND`（預設 0.4，環境變數可蓋）用浮點累加，滿 1 才推進 1 遊戲分鐘。還沒滿的 tick 只移動正在走路的人。
-- `llm` 模式走到 18:00 開鎮民大會：時鐘停在 18:00，需求仍結算，居民改往廣場。玩家用 `accuse` 指認人與動機，不呼叫模型。揭曉後 45 真實秒，或所有在線玩家都按下一局，一起進入下一天 08:00，私人進度清空、token 保留。`rules` 不開大會，時鐘照常走過 18:00。正式站要等 PR4 部署成功後，由人把 `deploy/.env` 的 `BRAIN_MODE` 改成 `llm` 再重新部署。見 `docs/DEPLOY.md`。
+- `llm` 模式走到 18:00 開鎮民大會：時鐘停在 18:00，需求仍結算，居民改往廣場。玩家用 `accuse` 指認人與動機，不呼叫模型。揭曉停留 `REVEAL_HOLD_SECONDS`（45 真實秒），或所有在線玩家都按下一局，一起進入下一天 08:00，私人進度與筆記清空、token 保留。`rules` 不開大會，時鐘照常走過 18:00。正式站的 `BRAIN_MODE` 已經是 `llm`，所以會在 18:00 開大會。
 - `World.tick()` 在預設 `rules` 的順序：NPC 先看是否倒下，再看手上有沒有食物、飢餓是否低於門檻，否則才套行程 → 移動 walking agent → 需求結算 → 推進時鐘。`llm` 不套這條優先序；決策在另一個 async worker 裡跑，`tick()` 只套用已經回來的結果。需求照樣結算，倒下時不採用 LLM 的移動。
 - Agent 狀態只有 `idle` 與 `walking`。行程命中時從 idle 改為 walking，並記一筆 `left`。抵達 POI（距離 ≤ `ARRIVAL_DISTANCE_THRESHOLD` 或 ≤ 本 tick 步長）後改回 idle，記一筆 `entered`。
 - WebSocket 是雙向的。連線會生成 `player_<conn_id>`，斷線就從世界上移除。私人進度掛在伺服器發的 `player_token` 上。客戶端可送 `intent`，伺服器回 `intent_result` 後立刻廣播變動。見 `docs/ADR/0005-bidirectional-websocket.md`。
@@ -398,9 +402,9 @@ TileMap 走 content id 這一輪不做。地面與建物仍由 `town_map.gd` 直
 
 先前三項畫面缺陷已修：全員 idle 時每個 tick 仍廣播 `agent_update`（時鐘繼續走）、HUD 把 day 轉成整數（不再顯示 `1.0`）、同座標的 NPC 只在 client 上錯開名字與對話泡泡，伺服器座標不變。
 
-預設大腦仍是 `rules`。差異見第 1.2 節。正式站要改模式，由人改主機 `deploy/.env` 的 `BRAIN_MODE` 再重新部署，見 `docs/DEPLOY.md`。未設定時 compose 仍是 `rules`。
+預設大腦仍是 `rules`。差異見第 1.2 節。正式站的 `BRAIN_MODE` 已經是 `llm`。未設定時 compose 仍是 `rules`；改模式見 `docs/DEPLOY.md`。
 
-謎題做到 PR3。PR #39（`feat/mystery-pr4`）還沒進 main，等玩法確認。下一輪不要從這份文件推斷該合併它，或該開下一號功能。
+謎題做到 PR4。PR #39 已合進 main：時鐘預設每真實秒 0.4 遊戲分鐘，`llm` 在 18:00 開鎮民大會，揭曉停留 `REVEAL_HOLD_SECONDS` 45 真實秒。
 
 ## 8. v0.2 roadmap
 
