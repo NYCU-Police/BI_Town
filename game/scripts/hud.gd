@@ -89,6 +89,10 @@ var _pulse_clock := 0.0
 var _dialogue_shown := false
 var _notebook_open := false
 var _log_open := false
+var _chrome_held := false
+var _held_dialogue := false
+var _held_notebook := false
+var _held_log := false
 var _hint_token := 0
 var _fades: Dictionary = {}
 var _present_caption: Label
@@ -529,7 +533,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _toggle_notebook() -> void:
-	if _notebook == null:
+	if _notebook == null or _chrome_held:
 		return
 	_notebook_open = not _notebook_open
 	_fade(_notebook, _notebook_open)
@@ -539,6 +543,8 @@ func _toggle_notebook() -> void:
 
 
 func _toggle_event_log() -> void:
+	if _chrome_held:
+		return
 	_log_open = not _log_open
 	_fade(_log_drawer, _log_open)
 	if _log_open and _notebook_open:
@@ -775,6 +781,7 @@ func _layout_chrome() -> void:
 	_place(_log_drawer, _LOG_RECT)
 	_place(_log_button, _LOG_BUTTON_RECT)
 	_place(_dialogue_line, _INPUT_RECT)
+	_place_assembly()
 	_fit_bottom_bar()
 
 
@@ -800,6 +807,12 @@ func _sync_dialogue_chrome() -> void:
 	if _dialogue == null:
 		return
 	var open := not _dialogue_speaker.is_empty()
+	if _chrome_held:
+		_held_dialogue = open
+		if _dialogue_shown:
+			_dialogue_shown = false
+			_fade(_dialogue, false)
+		return
 	if open == _dialogue_shown:
 		return
 	_dialogue_shown = open
@@ -966,7 +979,7 @@ func _flash_hint(text: String) -> void:
 	)
 
 
-func _fade(node: CanvasItem, show: bool) -> void:
+func _fade(node: CanvasItem, show: bool, on_done: Callable = Callable()) -> void:
 	if node == null:
 		return
 	var key := node.get_instance_id()
@@ -981,12 +994,18 @@ func _fade(node: CanvasItem, show: bool) -> void:
 		node.visible = true
 		node.modulate.a = 0.0
 		tween.tween_property(node, "modulate:a", 1.0, _MOTION_SEC)
+		if on_done.is_valid():
+			tween.tween_callback(on_done)
 		return
 	if not node.visible:
+		if on_done.is_valid():
+			on_done.call()
 		return
 	tween.tween_property(node, "modulate:a", 0.0, _MOTION_SEC)
 	tween.tween_callback(func() -> void:
 		node.visible = false
+		if on_done.is_valid():
+			on_done.call()
 	)
 
 
@@ -1016,7 +1035,7 @@ func show_assembly(message: Dictionary) -> void:
 	_person_pick.disabled = false
 	_motive_pick.disabled = false
 	_assembly_next.visible = false
-	_assembly.visible = true
+	_open_assembly_panel()
 	_start_countdown(int(message.get("remaining_seconds", 90)))
 
 
@@ -1040,18 +1059,20 @@ func show_reveal(message: Dictionary) -> void:
 	_assembly_next.disabled = false
 	_person_pick.visible = false
 	_motive_pick.visible = false
-	_assembly.visible = true
+	_open_assembly_panel()
 	_start_countdown(int(message.get("remaining_seconds", 45)))
 
 
 func hide_assembly() -> void:
 	_assembly_timing = false
-	if _assembly != null:
-		_assembly.visible = false
 	if _person_pick != null:
 		_person_pick.visible = true
 	if _motive_pick != null:
 		_motive_pick.visible = true
+	if _assembly == null:
+		_release_chrome()
+		return
+	_fade(_assembly, false, _release_chrome)
 
 
 func _restore_round(data: Dictionary) -> void:
@@ -1085,39 +1106,77 @@ func _fill_options(picker: OptionButton, rows: Variant, label_key: String, id_ke
 		picker.set_item_metadata(picker.item_count - 1, str(row.get(id_key, "")))
 
 
+func _open_assembly_panel() -> void:
+	if _assembly == null:
+		return
+	_hold_chrome()
+	if _assembly.visible and _assembly.modulate.a >= 1.0:
+		return
+	_fade(_assembly, true)
+
+
+func _hold_chrome() -> void:
+	if _chrome_held:
+		return
+	_chrome_held = true
+	_held_dialogue = _dialogue_shown
+	_held_notebook = _notebook_open
+	_held_log = _log_open
+	if _dialogue_shown:
+		_dialogue_shown = false
+		_fade(_dialogue, false)
+	if _dialogue_line != null:
+		_fade(_dialogue_line, false)
+	if _notebook_open:
+		_notebook_open = false
+		_fade(_notebook, false)
+	if _log_open:
+		_log_open = false
+		_fade(_log_drawer, false)
+
+
+func _release_chrome() -> void:
+	if not _chrome_held:
+		return
+	_chrome_held = false
+	if _dialogue_line != null:
+		_fade(_dialogue_line, true)
+	if _held_dialogue and not _dialogue_speaker.is_empty():
+		_dialogue_shown = true
+		_fade(_dialogue, true)
+	if _held_notebook:
+		_notebook_open = true
+		_fade(_notebook, true)
+	if _held_log:
+		_log_open = true
+		_fade(_log_drawer, true)
+	_held_dialogue = false
+	_held_notebook = false
+	_held_log = false
+
+
 func _build_assembly() -> void:
 	_assembly = Panel.new()
 	_assembly.name = "Assembly"
 	_assembly.visible = false
-	_assembly.anchor_left = 0.5
-	_assembly.anchor_top = 0.5
-	_assembly.anchor_right = 0.5
-	_assembly.anchor_bottom = 0.5
-	_assembly.offset_left = -220.0
-	_assembly.offset_top = -180.0
-	_assembly.offset_right = 220.0
-	_assembly.offset_bottom = 180.0
+	_assembly.modulate.a = 0.0
 	_assembly.mouse_filter = Control.MOUSE_FILTER_STOP
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#1c1916")
-	style.set_corner_radius_all(6)
-	_assembly.add_theme_stylebox_override("panel", style)
 	add_child(_assembly)
+	_place_assembly()
 
 	_assembly_body = RichTextLabel.new()
 	_assembly_body.offset_left = 16.0
 	_assembly_body.offset_top = 12.0
 	_assembly_body.offset_right = 424.0
-	_assembly_body.offset_bottom = 150.0
+	_assembly_body.offset_bottom = 152.0
 	_assembly_body.scroll_active = true
-	_assembly_body.add_theme_color_override("default_color", Color("#f4f0e6"))
 	_assembly.add_child(_assembly_body)
 
-	_person_pick = _dark_option()
+	_person_pick = _option_button()
 	_person_pick.offset_top = 160.0
 	_person_pick.offset_bottom = 192.0
 	_assembly.add_child(_person_pick)
-	_motive_pick = _dark_option()
+	_motive_pick = _option_button()
 	_motive_pick.offset_top = 200.0
 	_motive_pick.offset_bottom = 232.0
 	_assembly.add_child(_motive_pick)
@@ -1127,15 +1186,13 @@ func _build_assembly() -> void:
 	_assembly_status.offset_top = 240.0
 	_assembly_status.offset_right = 220.0
 	_assembly_status.offset_bottom = 268.0
-	_assembly_status.add_theme_color_override("font_color", Color("#f4f0e6"))
 	_assembly.add_child(_assembly_status)
 
 	_assembly_count = Label.new()
-	_assembly_count.offset_left = 230.0
+	_assembly_count.offset_left = 232.0
 	_assembly_count.offset_top = 240.0
 	_assembly_count.offset_right = 424.0
 	_assembly_count.offset_bottom = 268.0
-	_assembly_count.add_theme_color_override("font_color", Color("#f4f0e6"))
 	_assembly.add_child(_assembly_count)
 
 	_assembly_confirm = Button.new()
@@ -1158,12 +1215,19 @@ func _build_assembly() -> void:
 	_assembly.add_child(_assembly_next)
 
 
-func _dark_option() -> OptionButton:
+func _place_assembly() -> void:
+	if _assembly == null:
+		return
+	var view := get_viewport().get_visible_rect().size
+	var size := Vector2(440, 360)
+	var origin := (view - size) * 0.5
+	_place(_assembly, Rect2(origin, size))
+
+
+func _option_button() -> OptionButton:
 	var picker := OptionButton.new()
 	picker.offset_left = 16.0
 	picker.offset_right = 424.0
-	picker.add_theme_color_override("font_color", Color("#f4f0e6"))
-	picker.add_theme_color_override("font_hover_color", Color("#f4f0e6"))
 	return picker
 
 

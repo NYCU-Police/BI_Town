@@ -1,4 +1,4 @@
-[gd_resource type="Theme" load_steps=15 format=3]
+[gd_resource type="Theme" load_steps=16 format=3]
 
 [ext_resource type="FontFile" uid="uid://pskxyqu1hnha" path="res://assets/fonts/FusionPixel12px-zh_hant.woff2" id="1_font"]
 [ext_resource type="Texture2D" uid="uid://d31xs5qanvfnh" path="res://assets/packs/default/ui/panel_bg.png" id="2_bg"]
@@ -106,6 +106,13 @@ content_margin_top = 4.0
 content_margin_right = 8.0
 content_margin_bottom = 4.0
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu_hover"]
+bg_color = Color(1, 0.678431, 0.333333, 1)
+content_margin_left = 8.0
+content_margin_top = 4.0
+content_margin_right = 8.0
+content_margin_bottom = 4.0
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_flash"]
 bg_color = Color(1, 0.678431, 0.333333, 1)
 
@@ -149,6 +156,24 @@ Button/styles/hover = SubResource("StyleBoxTexture_button_hover")
 Button/styles/pressed = SubResource("StyleBoxTexture_button_pressed")
 Button/styles/disabled = SubResource("StyleBoxTexture_slot")
 Button/styles/focus = SubResource("StyleBoxTexture_button")
+OptionButton/colors/font_color = Color(0.109804, 0.098039, 0.086275, 1)
+OptionButton/colors/font_hover_color = Color(0.109804, 0.098039, 0.086275, 1)
+OptionButton/colors/font_pressed_color = Color(0.109804, 0.098039, 0.086275, 1)
+OptionButton/colors/font_disabled_color = Color(0.109804, 0.098039, 0.086275, 1)
+OptionButton/colors/font_focus_color = Color(0.109804, 0.098039, 0.086275, 1)
+OptionButton/font_sizes/font_size = 12
+OptionButton/styles/normal = SubResource("StyleBoxTexture_button")
+OptionButton/styles/hover = SubResource("StyleBoxTexture_button_hover")
+OptionButton/styles/pressed = SubResource("StyleBoxTexture_button_pressed")
+OptionButton/styles/disabled = SubResource("StyleBoxTexture_slot")
+OptionButton/styles/focus = SubResource("StyleBoxTexture_button")
+PopupMenu/colors/font_color = Color(0.956863, 0.941176, 0.901961, 1)
+PopupMenu/colors/font_hover_color = Color(0.109804, 0.098039, 0.086275, 1)
+PopupMenu/colors/font_disabled_color = Color(0.768627, 0.733333, 0.658824, 1)
+PopupMenu/colors/font_accelerator_color = Color(0.768627, 0.733333, 0.658824, 1)
+PopupMenu/font_sizes/font_size = 12
+PopupMenu/styles/panel = SubResource("StyleBoxTexture_panel")
+PopupMenu/styles/hover = SubResource("StyleBoxFlat_menu_hover")
 Bubble/base_type = &"Panel"
 Bubble/styles/panel = SubResource("StyleBoxFlat_bubble")
 Flash/base_type = &"Panel"
