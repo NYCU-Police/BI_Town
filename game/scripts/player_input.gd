@@ -256,12 +256,7 @@ func _click_move() -> void:
 	if not _world.has_method("poi_at"):
 		return
 	var mouse := get_viewport().get_mouse_position()
-	var view := get_viewport().get_visible_rect().size
-	if mouse.y >= view.y - 370.0 and mouse.x < 500.0:
-		return
 	if _hud.has_method("blocks_pointer") and _hud.blocks_pointer(mouse):
-		return
-	if mouse.y >= view.y - 150.0 and mouse.x < 660.0:
 		return
 	var world_at: Vector2 = _world.get_global_mouse_position()
 	if _world.has_method("agent_at"):

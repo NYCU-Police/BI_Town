@@ -2,19 +2,34 @@ extends RichTextLabel
 
 const MAX_EVENTS := 20
 
-var _lines: Array[String] = []
+var _entries: Array[Dictionary] = []
+var _show_movement := false
 
 
 func clear_events() -> void:
-	_lines.clear()
+	_entries.clear()
 	text = ""
 
 
-func add_event(line: String) -> void:
-	_lines.append(line)
-	while _lines.size() > MAX_EVENTS:
-		_lines.remove_at(0)
-	text = "\n".join(_lines)
+func add_event(line: String, category: String = "talk") -> void:
+	_entries.append({"line": line, "category": category})
+	while _entries.size() > MAX_EVENTS:
+		_entries.remove_at(0)
+	_render()
+
+
+func set_movement_visible(show: bool) -> void:
+	_show_movement = show
+	_render()
+
+
+func _render() -> void:
+	var lines: PackedStringArray = PackedStringArray()
+	for entry in _entries:
+		if str(entry.get("category", "")) == "move" and not _show_movement:
+			continue
+		lines.append(str(entry.get("line", "")))
+	text = "\n".join(lines)
 	call_deferred("_follow_bottom")
 
 
