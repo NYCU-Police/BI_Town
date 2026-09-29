@@ -39,6 +39,7 @@ var _facing := "down"
 var _frame_index := 0
 var _frame_clock := 0.0
 var _local_player: bool = false
+var _name_drop := 0.0
 var _hop := 0.0
 var _chat_left := 0.0
 var _conversing := false
@@ -173,20 +174,14 @@ func set_local_player(enabled: bool) -> void:
 		_you_ring.visible = false
 	if _you_arrow != null:
 		_you_arrow.visible = false
-	_name_plate.offset_top = -40.0
-	_name_plate.offset_bottom = -24.0
-	_label.offset_top = -40.0
-	_label.offset_bottom = -24.0
+	_apply_name_plate()
 
 
 func _show_you() -> void:
 	_label.text = "你"
 	var tint := VisualBinder.name_color("agent.player")
 	_label.add_theme_color_override("font_color", tint)
-	_name_plate.offset_top = -52.0
-	_name_plate.offset_bottom = -36.0
-	_label.offset_top = -52.0
-	_label.offset_bottom = -36.0
+	_apply_name_plate()
 	_you_arrow.color = tint
 	_you_arrow.visible = true
 	_you_ring.default_color = Color(tint.r, tint.g, tint.b, 0.95)
@@ -212,6 +207,24 @@ func set_stand_offset(offset: Vector2, snap: bool) -> void:
 	_place(snap)
 
 
+func set_name_drop(drop: float) -> void:
+	if is_equal_approx(_name_drop, drop):
+		return
+	_name_drop = drop
+	_apply_name_plate()
+
+
+func _apply_name_plate() -> void:
+	if _name_plate == null or _label == null:
+		return
+	var top := (-52.0 if _local_player else -40.0) + _name_drop
+	var bottom := top + 16.0
+	_name_plate.offset_top = top
+	_name_plate.offset_bottom = bottom
+	_label.offset_top = top
+	_label.offset_bottom = bottom
+
+
 func set_cluster_slot(index: int, count: int, snap: bool) -> void:
 	_slot_index = index
 	var body := Vector2.ZERO
@@ -228,8 +241,6 @@ func show_speech(content: String) -> void:
 	if utterance.is_empty():
 		return
 	_speaker_label.text = _label.text
-	var speaker_color := VisualBinder.name_color("agent." + _agent_id)
-	_speaker_label.add_theme_color_override("font_color", speaker_color)
 	_speech_label.text = utterance
 	_layout_bubble()
 	_speech.modulate.a = 1.0

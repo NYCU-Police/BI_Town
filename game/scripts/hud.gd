@@ -7,6 +7,12 @@ signal dialogue_target_changed
 const _Places := preload("res://scripts/place_names.gd")
 ## Same line as the server's hungry / exhausted / lonely marks.
 const _LOW_NEED := 30
+const _MOTION_SEC := 0.15
+const _NOTE_FLASH_SEC := 0.4
+const _DOT_SEC := 0.4
+const _NEED_PULSE_SEC := 1.0
+const _NEED_PULSE_MIN := 0.6
+const _ACTION_HINT_SEC := 1.0
 const _HINT := "點地點移動　1–3 工具　4 使用　E 撿　G 給予　Q 切換　N 筆記"
 const _IDLE_PLACEHOLDER := "點一位居民，再打字　N 筆記"
 const _DIALOGUE_RECT := Rect2(16, 496, 848, 144)
@@ -64,6 +70,16 @@ var _seen_hunger := 0
 var _seen_energy := 0
 var _seen_social := 0
 var _seen_ready := false
+var _you := ""
+var _notes_ready := false
+var _need_levels: Array[int] = [100, 100, 100]
+var _pulse_clock := 0.0
+var _dialogue_shown := false
+var _notebook_open := false
+var _log_open := false
+var _hint_token := 0
+var _fades: Dictionary = {}
+var _present_caption: Label
 
 
 func _ready() -> void:
@@ -89,10 +105,12 @@ func _ready() -> void:
 	_request_health()
 	_build_dialogue()
 	_build_notebook()
+	_log_drawer.modulate.a = 0.0
 	_layout_chrome()
 
 
 func apply_snapshot(data: Dictionary) -> void:
+	_you = str(data.get("you", ""))
 	_set_clock(data)
 	_agent_names.clear()
 	var agents: Variant = data.get("agents", [])
@@ -133,6 +151,7 @@ func apply_agent_update(data: Dictionary) -> void:
 
 func apply_event(data: Dictionary) -> void:
 	_append_event(data)
+	_flash_player_action(data)
 
 
 func set_connection(online: bool) -> void:
@@ -331,12 +350,16 @@ func _clear_slot_icon(host: Control) -> void:
 
 
 func set_needs(hunger: int, energy: int, social: int) -> void:
+	_need_levels = [hunger, energy, social]
 	_paint_need(_hunger_label, "飢餓", hunger)
 	_paint_need(_energy_label, "體力", energy)
 	_paint_need(_social_label, "社交", social)
+	_pulse_needs(0.0)
 
 
 func show_intent_reason(reason: String) -> void:
+	_hint_token += 1
+	_intent_label.theme_type_variation = "Warn"
 	_intent_label.text = reason
 	_intent_label.visible = not reason.is_empty()
 
@@ -433,7 +456,7 @@ const _EVENT_TEMPLATES := {
 	"gave": "{time} {name} 把 {item} 給了 {target}",
 	"picked_up": "{time} {name} 撿起 {item}",
 	"produced": "{time} {name} 做出 {item}",
-	"said": "{time} {name}{arrow}\n{quote}",
+	"said": "{time} {name}{public}{arrow}\n{quote}",
 	"thought": "{time} {name}（想）\n{quote}",
 	"conversing": "{time} {name} 正在和 {target} 說話",
 }
@@ -447,8 +470,10 @@ const _ITEM_NAMES := {
 func _format_event(data: Dictionary) -> String:
 	var action := str(data.get("event", ""))
 	var template := str(_EVENT_TEMPLATES.get(action, "{time} {name} {action}"))
-	var dim := action == "thought" or action in _MOVE_EVENTS
-	var color := _thought_hex if action == "thought" else (_move_hex if action in _MOVE_EVENTS else _said_hex)
+	var dim := action == "thought" or action == "said" or action in _MOVE_EVENTS
+	var color := _thought_hex if action == "thought" or action == "said" else (
+		_move_hex if action in _MOVE_EVENTS else _said_hex
+	)
 	var target_id := str(data.get("target_agent_id", ""))
 	var arrow := ""
 	if action == "said" and not target_id.is_empty():
@@ -463,6 +488,7 @@ func _format_event(data: Dictionary) -> String:
 		"item": _tone(_item_label(str(data.get("item", ""))), color),
 		"target": _colored_name(target_id) if not target_id.is_empty() else "",
 		"arrow": arrow,
+		"public": _tone("（公開）", color) if action == "said" else "",
 		"quote": _tone(quote, color),
 		"action": _tone(action, color),
 	}
@@ -491,15 +517,19 @@ func _unhandled_input(event: InputEvent) -> void:
 func _toggle_notebook() -> void:
 	if _notebook == null:
 		return
-	_notebook.visible = not _notebook.visible
-	if _notebook.visible:
-		_log_drawer.visible = false
+	_notebook_open = not _notebook_open
+	_fade(_notebook, _notebook_open)
+	if _notebook_open and _log_open:
+		_log_open = false
+		_fade(_log_drawer, false)
 
 
 func _toggle_event_log() -> void:
-	_log_drawer.visible = not _log_drawer.visible
-	if _log_drawer.visible and _notebook != null:
-		_notebook.visible = false
+	_log_open = not _log_open
+	_fade(_log_drawer, _log_open)
+	if _log_open and _notebook_open:
+		_notebook_open = false
+		_fade(_notebook, false)
 
 
 func _toggle_movement() -> void:
@@ -533,13 +563,17 @@ func dialogue_speaker() -> String:
 
 
 func set_confront_target(agent_id: String) -> void:
-	if _confront_target == agent_id:
-		return
+	var changed := _confront_target != agent_id
 	_confront_target = agent_id
-	_rebuild_notes()
+	_refresh_present_caption()
+	if changed:
+		_rebuild_notes()
 
 
 func set_notes(notes: Variant, ids: Variant = null) -> void:
+	var previous := _note_texts.size()
+	var first_load := not _notes_ready
+	_notes_ready = true
 	_note_texts = PackedStringArray()
 	_note_fact_ids = PackedStringArray()
 	if typeof(notes) == TYPE_ARRAY:
@@ -549,12 +583,14 @@ func set_notes(notes: Variant, ids: Variant = null) -> void:
 			if typeof(ids) == TYPE_ARRAY and index < ids.size():
 				fact_id = str(ids[index])
 			_note_fact_ids.append(fact_id)
-	_rebuild_notes()
+	_rebuild_notes(_note_texts.size() if first_load else previous)
 
 
-func _rebuild_notes() -> void:
+func _rebuild_notes(flash_from: int = -1) -> void:
 	if _note_box == null:
 		return
+	if flash_from < 0:
+		flash_from = _note_texts.size()
 	for child in _note_box.get_children():
 		_note_box.remove_child(child)
 		child.free()
@@ -565,21 +601,31 @@ func _rebuild_notes() -> void:
 		return
 	for index in _note_texts.size():
 		var row := HBoxContainer.new()
-		var button := Button.new()
-		button.text = "出示"
 		var fact_id := str(_note_fact_ids[index])
-		button.disabled = _confront_target.is_empty() or fact_id.is_empty()
-		button.focus_mode = Control.FOCUS_NONE
-		button.custom_minimum_size = Vector2(48, 24)
-		button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		button.pressed.connect(_present_note.bind(fact_id))
+		if not fact_id.is_empty():
+			var button := Button.new()
+			button.text = "出示"
+			button.disabled = _confront_target.is_empty()
+			button.focus_mode = Control.FOCUS_NONE
+			button.custom_minimum_size = Vector2(48, 24)
+			button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+			button.pressed.connect(_present_note.bind(fact_id))
+			row.add_child(button)
 		var label := Label.new()
 		label.text = str(_note_texts[index])
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(button)
 		row.add_child(label)
-		_note_box.add_child(row)
+		if index >= flash_from:
+			var flash := PanelContainer.new()
+			flash.theme_type_variation = "Flash"
+			flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			flash.add_child(row)
+			_note_box.add_child(flash)
+			var tween := create_tween()
+			tween.tween_property(flash, "self_modulate:a", 0.0, _NOTE_FLASH_SEC)
+		else:
+			_note_box.add_child(row)
 
 
 func _present_note(fact_id: String) -> void:
@@ -592,6 +638,7 @@ func _build_notebook() -> void:
 	_notebook = Panel.new()
 	_notebook.name = "Notebook"
 	_notebook.visible = false
+	_notebook.modulate.a = 0.0
 	_notebook.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_notebook)
 
@@ -600,9 +647,18 @@ func _build_notebook() -> void:
 	title.theme_type_variation = "Title"
 	title.offset_left = 12.0
 	title.offset_top = 8.0
-	title.offset_right = 120.0
+	title.offset_right = 72.0
 	title.offset_bottom = 32.0
 	_notebook.add_child(title)
+
+	_present_caption = Label.new()
+	_present_caption.text = "走到對方面前才能出示"
+	_present_caption.anchor_right = 1.0
+	_present_caption.offset_left = 76.0
+	_present_caption.offset_top = 14.0
+	_present_caption.offset_right = -12.0
+	_present_caption.offset_bottom = 32.0
+	_notebook.add_child(_present_caption)
 
 	var hint := Label.new()
 	hint.text = _HINT
@@ -633,6 +689,7 @@ func _build_dialogue() -> void:
 	var panel := Panel.new()
 	panel.name = "Dialogue"
 	panel.visible = false
+	panel.modulate.a = 0.0
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(panel)
 	_dialogue = panel
@@ -726,7 +783,11 @@ func _fit_bottom_bar() -> void:
 func _sync_dialogue_chrome() -> void:
 	if _dialogue == null:
 		return
-	_dialogue.visible = not _dialogue_speaker.is_empty()
+	var open := not _dialogue_speaker.is_empty()
+	if open == _dialogue_shown:
+		return
+	_dialogue_shown = open
+	_fade(_dialogue, open)
 
 
 func _cache_theme_colors() -> void:
@@ -745,10 +806,11 @@ func _theme_hex(item: String) -> String:
 
 
 func _process(delta: float) -> void:
+	_pulse_needs(delta)
 	if not _waiting:
 		return
 	_dot_accum += delta
-	if _dot_accum < 0.4:
+	if _dot_accum < _DOT_SEC:
 		return
 	_dot_accum = 0.0
 	_dot_phase = (_dot_phase + 1) % 3
@@ -778,11 +840,18 @@ func start_waiting(agent_name: String) -> void:
 	_dot_phase = 0
 	_dot_accum = 0.0
 	_dialogue_status.text = "%s想了想·" % agent_name
+	if _dialogue_line != null:
+		_dialogue_line.editable = false
+		_dialogue_line.release_focus()
 
 
 func stop_waiting() -> void:
 	_waiting = false
 	_dialogue_status.text = ""
+	if _dialogue_line == null:
+		return
+	_dialogue_line.editable = true
+	_dialogue_line.grab_focus()
 
 
 func show_private_reply(speaker_id: String, reply: String) -> void:
@@ -831,6 +900,85 @@ func _refresh_dialogue() -> void:
 func _on_dialogue_submitted(text: String) -> void:
 	var body := text.strip_edges()
 	_dialogue_line.text = ""
-	if body.is_empty():
+	if body.is_empty() or not _dialogue_line.editable:
 		return
 	talk_submitted.emit(body)
+
+
+func _refresh_present_caption() -> void:
+	if _present_caption == null:
+		return
+	if _confront_target.is_empty():
+		_present_caption.text = "走到對方面前才能出示"
+		return
+	var name := str(_agent_names.get(_confront_target, ""))
+	if name.is_empty() and _dialogue_name != null:
+		name = _dialogue_name.text
+	_present_caption.text = "可向 %s 出示" % name
+
+
+func _flash_player_action(data: Dictionary) -> void:
+	if _you.is_empty() or str(data.get("agent_id", "")) != _you:
+		return
+	var action := str(data.get("event", ""))
+	if action == "picked_up":
+		_flash_hint("撿到了")
+	elif action == "gave" and str(data.get("item", "")) == "bread":
+		_flash_hint("麵包送出了")
+	elif action == "gave":
+		_flash_hint("送出了")
+
+
+func _flash_hint(text: String) -> void:
+	_hint_token += 1
+	var token := _hint_token
+	_intent_label.theme_type_variation = "Accent"
+	_intent_label.text = text
+	_intent_label.visible = true
+	var tween := create_tween()
+	tween.tween_interval(_ACTION_HINT_SEC)
+	tween.tween_callback(func() -> void:
+		if token != _hint_token:
+			return
+		_intent_label.text = ""
+		_intent_label.visible = false
+		_intent_label.theme_type_variation = "Warn"
+	)
+
+
+func _fade(node: CanvasItem, show: bool) -> void:
+	if node == null:
+		return
+	var key := node.get_instance_id()
+	if _fades.has(key):
+		var previous: Tween = _fades[key]
+		if previous != null and previous.is_valid():
+			previous.kill()
+	var tween := create_tween()
+	_fades[key] = tween
+	tween.set_trans(Tween.TRANS_LINEAR)
+	if show:
+		node.visible = true
+		node.modulate.a = 0.0
+		tween.tween_property(node, "modulate:a", 1.0, _MOTION_SEC)
+		return
+	if not node.visible:
+		return
+	tween.tween_property(node, "modulate:a", 0.0, _MOTION_SEC)
+	tween.tween_callback(func() -> void:
+		node.visible = false
+	)
+
+
+func _pulse_needs(delta: float) -> void:
+	_pulse_clock += delta
+	var phase := fmod(_pulse_clock, _NEED_PULSE_SEC) / _NEED_PULSE_SEC
+	var dip := 0.5 - 0.5 * cos(phase * TAU)
+	var alpha := lerpf(1.0, _NEED_PULSE_MIN, dip)
+	var labels: Array[Label] = [_hunger_label, _energy_label, _social_label]
+	for index in labels.size():
+		var label := labels[index]
+		if label == null:
+			continue
+		var low := index < _need_levels.size() and _need_levels[index] < _LOW_NEED
+		label.modulate.a = alpha if low else 1.0

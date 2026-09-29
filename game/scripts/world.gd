@@ -97,6 +97,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(_delta: float) -> void:
 	_update_hover()
+	_stack_nameplates()
 
 
 func agent_at(world_pos: Vector2) -> String:
@@ -240,6 +241,63 @@ func npc_position(agent_id: String) -> Vector2:
 	if not _npcs.has(agent_id):
 		return Vector2.INF
 	return (_npcs[agent_id] as Node2D).global_position
+
+
+const _NAMEPLATE_WIDTH := 56.0
+const _NAMEPLATE_STEP := 16.0
+
+
+func _stack_nameplates() -> void:
+	var ids: Array[String] = []
+	for agent_id in _npcs:
+		ids.append(str(agent_id))
+	var parent := {}
+	for agent_id in ids:
+		parent[agent_id] = agent_id
+	for left in ids.size():
+		for right in range(left + 1, ids.size()):
+			var a := _npcs[ids[left]] as Node2D
+			var b := _npcs[ids[right]] as Node2D
+			if a == null or b == null:
+				continue
+			if a.global_position.distance_to(b.global_position) >= _NAMEPLATE_WIDTH:
+				continue
+			_union_nameplates(parent, ids[left], ids[right])
+	var groups := {}
+	for agent_id in ids:
+		var root := _find_nameplate(parent, agent_id)
+		if not groups.has(root):
+			groups[root] = []
+		(groups[root] as Array).append(agent_id)
+	for root in groups:
+		var members: Array = groups[root]
+		members.sort_custom(func(a: String, b: String) -> bool:
+			if a == _you:
+				return true
+			if b == _you:
+				return false
+			return a < b
+		)
+		for index in members.size():
+			var npc: Node = _npcs[str(members[index])]
+			if npc != null and npc.has_method("set_name_drop"):
+				npc.set_name_drop(_NAMEPLATE_STEP * float(index))
+
+
+func _find_nameplate(parent: Dictionary, agent_id: String) -> String:
+	var root := str(parent.get(agent_id, agent_id))
+	if root == agent_id:
+		return agent_id
+	root = _find_nameplate(parent, root)
+	parent[agent_id] = root
+	return root
+
+
+func _union_nameplates(parent: Dictionary, left: String, right: String) -> void:
+	var left_root := _find_nameplate(parent, left)
+	var right_root := _find_nameplate(parent, right)
+	if left_root != right_root:
+		parent[right_root] = left_root
 
 
 func _separate_overlaps(snap: bool) -> void:

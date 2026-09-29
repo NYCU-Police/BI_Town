@@ -393,6 +393,9 @@ func _on_present(fact_id: String) -> void:
 
 
 func _on_talk_submitted(text: String) -> void:
+	var audio := get_node_or_null("../GameAudio")
+	if audio != null and audio.has_method("play_click"):
+		audio.play_click()
 	if _talk_target.is_empty():
 		_show_local_reason("unknown_agent")
 		return
