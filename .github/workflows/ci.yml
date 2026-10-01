@@ -19,6 +19,9 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      UV_PYTHON_DOWNLOADS: never
+      UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,18 +31,20 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v10.2.0
+      - name: Cache uv
+        uses: actions/cache@v4
         with:
-          version: "0.12.21"
+          path: ${{ github.workspace }}/.uv-cache
+          key: uv-${{ runner.os }}-${{ hashFiles('backend/uv.lock') }}
+
+      - name: Install uv
+        run: pip install uv==0.12.21
 
       - name: Assert uv version
         run: uv --version | grep -q 'uv 0.12.21'
 
       - name: Install backend dependencies
         run: uv sync --frozen
-        env:
-          UV_PYTHON_DOWNLOADS: never
 
       - name: pytest
         run: uv run pytest -v

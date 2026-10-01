@@ -1,0 +1,28 @@
+---
+description: GitHub Actions 白名單。新增 uses 前必須先核對
+alwaysApply: true
+---
+
+# Actions 白名單
+
+這個 repo 的 Actions 權限是 `selected`。`verified_allowed` 為 false。不在名單內的 `uses:` 會讓整個 workflow `startup_failure`，job 不會啟動，PR 檢查停在 Expected。
+
+目前允許的 pattern（以 repo API 為準，變更後要改這份清單）：
+
+- `actions/*`
+- `github/*`
+- `gitleaks/gitleaks-action@*`
+- `google/osv-scanner-action@*`
+- `docker/*`
+- `tailscale/github-action@*`
+
+新增或修改任何 `uses:` 之前，先確認 action 符合上面其中一條。不符合就不要寫進 workflow。改用 shell 安裝（例如 `pip install uv==0.12.21`），或先把選項交給人決定。不要自行改 repo 或組織的 Actions 設定。
+
+```yaml
+# 不允許：astral-sh 不在名單內，整個 CI 不會啟動
+- uses: astral-sh/setup-uv@v10.2.0
+
+# 允許：actions/* 已在名單內；uv 用 pip 裝
+- uses: actions/setup-python@v5
+- run: pip install uv==0.12.21
+```

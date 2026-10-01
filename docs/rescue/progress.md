@@ -8,7 +8,7 @@
 
 - 選 uv 0.12.21，不用 pip-tools。一份 `backend/uv.lock` 同時鎖執行期與 dev group，並用 `required-version = "==0.12.21"` 拒絕其他 uv。
 - 直接依賴釘在已測過的版本：`fastapi==0.141.1`、`uvicorn[standard]==0.53.0`、`pydantic==2.13.5`、`httpx==0.28.1`、`jsonschema==4.26.0`、`opencc-python-reimplemented==0.1.7`。dev group：`pytest==9.1.1`、`ruff==0.16.8`、`httpx2==2.13.1`。Starlette 明確釘 `1.7.0`。
-- 刪除 `backend/requirements.txt`。CI（`astral-sh/setup-uv@v10.2.0`，uv `0.12.21`，`UV_PYTHON_DOWNLOADS=never`）與 Dockerfile 都改走 `uv sync --frozen`。正式映像用 `--no-dev`，CMD 是 `/app/.venv/bin/uvicorn`。
+- 刪除 `backend/requirements.txt`。CI 與 Dockerfile 都改走 `uv sync --frozen`，`UV_PYTHON_DOWNLOADS=never`。正式映像用 `--no-dev`，CMD 是 `/app/.venv/bin/uvicorn`。CI 不使用 `astral-sh/setup-uv`，見下方 startup_failure。
 - Dockerfile 設 `UV_PYTHON_DOWNLOADS=never`，依賴層只複製 `pyproject.toml` 與 `uv.lock`，安裝完才複製 `app/`。`GIT_COMMIT` 仍在依賴層之後。
 - `httpx` 留在執行期。`httpx2` 只在 dev group。正式映像沒有 pytest、ruff、httpx2。
 - 沒有改 `docker-compose.yml`、`deploy-staging.yml`、`llm_session.py`、Godot。
@@ -40,6 +40,14 @@
 revert PR 的 CI 全綠後，現有的 deploy workflow 會用舊的 `requirements.txt` 與 `pip install` 重建映像。後端測試與 Docker build 大約數分鐘，Godot web export 是這條 CI 裡較慢的一段；部署健康檢查三段各最多 60 秒。從 revert PR 合併算起，大約 15 分鐘可以回到舊安裝方式。runner 排隊會更久。
 
 每次部署都會把世界重置到 Day 1 08:00。回滾恢復的是安裝方式，不會把世界狀態救回來。這次沒有改 compose 或 deploy workflow。
+
+### CI startup_failure
+
+PR #45 前兩次 workflow（run 36856940754、36856959792）結論都是 `startup_failure`，0 秒，`jobs` 為空，所以三個必要檢查停在 Expected。actionlint 沒有語法錯誤，job 名稱也沒改。
+
+原因：repo 的 Actions 是 `allowed_actions: selected`，名單沒有 `astral-sh/setup-uv`。`uses:` 不在名單內時，整個 workflow 在啟動前被拒，連沒有用到該 Action 的 `docker-validate` 與 `godot-export-check` 也不會跑。
+
+處理：移除 `astral-sh/setup-uv`。在已允許的 `actions/setup-python@v5` 之後執行 `pip install uv==0.12.21`，保留 `UV_PYTHON_DOWNLOADS=never`。uv 套件快取改用白名單內的 `actions/cache@v4`，目錄是 `UV_CACHE_DIR`，key 為 `uv-${{ runner.os }}-${{ hashFiles('backend/uv.lock') }}`。Dockerfile 仍從 `ghcr.io/astral-sh/uv:0.12.21` 複製 uv，那不是 `uses:`，不受這份白名單限制。
 
 ### 遺留與新風險
 
