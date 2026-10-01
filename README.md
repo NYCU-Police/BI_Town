@@ -11,20 +11,18 @@ BI_Town (Behavioral Intelligence Town) 是一個 AI-native social simulation。
 
 ## Local Development
 
-需求：Python 3.12+
+需求：Python 3.12，以及 uv 0.12.21（`backend/pyproject.toml` 的 `required-version`）。
 
 ```bash
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uv sync --frozen
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 執行測試：
 
 ```bash
 cd backend
-source .venv/bin/activate
-pytest
+uv run pytest
+uv run ruff check .
 ```

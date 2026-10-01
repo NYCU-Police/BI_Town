@@ -12,7 +12,7 @@
 
 ## 決定
 
-- `GIT_COMMIT` 是映像建置參數，在 Dockerfile 裡放在 `pip install` 與 `COPY app` 之後。commit 變了只重跑最後的 `ENV`，不讓依賴層失效。
+- `GIT_COMMIT` 是映像建置參數，在 Dockerfile 裡放在依賴安裝與 `COPY app` 之後。commit 變了只重跑最後的 `ENV`，不讓依賴層失效。
 - `DEPLOYED_AT` 是容器環境變數。Deploy staging 在 `docker compose up` 當下用 UTC 時間寫入，容器建立時才進到行程。API 每次請求讀環境變數，所以這是這次容器被拉起來的時間。
 - 未設定或空白時，API 回 `unknown`。兩者都不是密鑰，不寫進 GitHub secrets，也不提交到 `deploy/.env`。
 

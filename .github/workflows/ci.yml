@@ -19,6 +19,9 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      UV_PYTHON_DOWNLOADS: never
+      UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,20 +30,27 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.uv-cache
+          key: uv-${{ runner.os }}-${{ hashFiles('backend/uv.lock') }}
+
+      - name: Install uv
+        run: pip install uv==0.12.21
+
+      - name: Assert uv version
+        run: uv --version | grep -q 'uv 0.12.21'
 
       - name: Install backend dependencies
-        run: pip install -r requirements.txt
+        run: uv sync --frozen
 
       - name: pytest
-        run: pytest -v
+        run: uv run pytest -v
 
       - name: ruff
-        working-directory: .
-        run: |
-          pip install ruff
-          ruff check backend/
+        run: uv run ruff check .
 
   docker-validate:
     name: docker-validate

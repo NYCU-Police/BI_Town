@@ -1,0 +1,25 @@
+[project]
+name = "bi-town"
+version = "0.1.0"
+description = "BI_Town server-authoritative world"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.141.1",
+    "httpx==0.28.1",
+    "jsonschema==4.26.0",
+    "opencc-python-reimplemented==0.1.7",
+    "pydantic==2.13.5",
+    "starlette==1.7.0",
+    "uvicorn[standard]==0.53.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2==2.13.1",
+    "pytest==9.1.1",
+    "ruff==0.16.8",
+]
+
+[tool.uv]
+package = false
+required-version = "==0.12.21"

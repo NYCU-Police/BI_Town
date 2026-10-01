@@ -245,9 +245,9 @@ POI 座標（`backend/app/simulation/poi.py`、`game/scripts/world.gd`、`game/s
 
 | 路徑 | 職責 |
 | --- | --- |
-| `requirements.txt` | fastapi、uvicorn、pydantic、pytest、httpx、opencc-python-reimplemented、jsonschema。 |
-| `pytest.ini` | `pythonpath = .`，`testpaths = tests`。 |
-| `Dockerfile` | `python:3.12-slim`，`uvicorn app.main:app --host 0.0.0.0 --port 8000`。 |
+| `pyproject.toml` / `uv.lock` | 依賴鎖在 uv 0.12.21。執行期是 fastapi、uvicorn、pydantic、httpx、starlette、opencc-python-reimplemented、jsonschema。pytest、ruff、httpx2 在 dev group，不進正式映像。 |
+| `pytest.ini` | `pythonpath = .`，`testpaths = tests`。Starlette 測試客戶端的兩則棄用警告設成 error。 |
+| `Dockerfile` | `python:3.12-slim`。uv 0.12.21 依 lockfile 安裝，CMD 是 `/app/.venv/bin/uvicorn`。 |
 | `tests/conftest.py` | 關閉模擬迴圈，`BRAIN_MODE=rules`；每個測試重置 world 與 WebSocket 連線。 |
 | `tests/test_dialogue.py` | 對話、token、佇列、注入包裝。 |
 | `tests/test_cases.py` | 案件輪替、信任、允許清單、schema 逐字相同。 |
@@ -339,25 +339,22 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 
 ## 6. 本機開發怎麼跑
 
-需求：Python 3.12+。Godot 編輯器 4.7（CI export 用 4.7.2）。
+需求：Python 3.12、uv 0.12.21。Godot 編輯器 4.7（CI export 用 4.7.2）。
 
 Backend（API + WebSocket，不提供網頁）：
 
 ```bash
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uv sync --frozen
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 測試與 lint：
 
 ```bash
 cd backend
-source .venv/bin/activate
-pytest
-ruff check backend/
+uv run pytest
+uv run ruff check .
 ```
 
 Godot 編輯器：開啟 `game/`（`game/project.godot`）。桌面執行時 WebSocket 預設打 `ws://127.0.0.1:8000/ws`，backend 要先在 8000。手繪圖怎麼蓋過現有素材見 `docs/ART.md`。
