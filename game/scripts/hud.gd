@@ -7,8 +7,7 @@ signal accuse_submitted(culprit_id: String, motive_id: String)
 signal next_round_submitted
 
 const _Places := preload("res://scripts/place_names.gd")
-## Same line as the server's hungry / exhausted / lonely marks.
-const _LOW_NEED := 30
+const _Rules := preload("res://scripts/game_config.gd")
 const _MOTION_SEC := 0.15
 const _NOTE_FLASH_SEC := 0.4
 const _DOT_SEC := 0.4
@@ -96,6 +95,9 @@ var _held_log := false
 var _hint_token := 0
 var _fades: Dictionary = {}
 var _present_caption: Label
+var _online := false
+var _config_ready := false
+var _saw_online := false
 
 
 func _ready() -> void:
@@ -173,11 +175,33 @@ func apply_event(data: Dictionary) -> void:
 
 
 func set_connection(online: bool) -> void:
+	_online = online
 	if online:
+		_saw_online = true
+	_paint_link()
+
+
+func mark_config_ready() -> void:
+	_config_ready = true
+	_paint_link()
+
+
+func mark_config_waiting() -> void:
+	_config_ready = false
+	_paint_link()
+
+
+func _paint_link() -> void:
+	if _status_label == null:
+		return
+	if _online and _config_ready:
 		_status_label.text = "● 已連線"
 		_status_label.theme_type_variation = "Accent"
-	else:
+	elif not _online and _saw_online:
 		_status_label.text = "● 離線"
+		_status_label.theme_type_variation = "Warn"
+	else:
+		_status_label.text = "● 連線中"
 		_status_label.theme_type_variation = "Warn"
 
 
@@ -393,7 +417,7 @@ func show_inspect(agent_name: String, hunger: int, energy: int, social: int) -> 
 
 func _paint_need(label: Label, title: String, value: int) -> void:
 	label.text = "%s %d" % [title, value]
-	label.theme_type_variation = "NeedLow" if value < _LOW_NEED else ""
+	label.theme_type_variation = "NeedLow" if _need_is_low(value) else ""
 
 
 func _apply_talk_needs() -> void:
@@ -478,11 +502,6 @@ const _EVENT_TEMPLATES := {
 	"thought": "{time} {name}（想）\n{quote}",
 	"conversing": "{time} {name} 正在和 {target} 說話",
 }
-const _ITEM_NAMES := {
-	"bread": "麵包",
-	"wood": "木材",
-	"watering_can": "澆水壺",
-}
 
 
 func _format_event(data: Dictionary) -> String:
@@ -521,7 +540,11 @@ func _format_event(data: Dictionary) -> String:
 func _item_label(item_id: String) -> String:
 	if item_id.is_empty():
 		return ""
-	return str(_ITEM_NAMES.get(item_id, item_id))
+	return _Rules.item_name(item_id)
+
+
+func _need_is_low(value: int) -> bool:
+	return _Rules.ready and value < _Rules.need_low
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -957,7 +980,7 @@ func _flash_player_action(data: Dictionary) -> void:
 	if action == "picked_up":
 		_flash_hint("撿到了")
 	elif action == "gave" and str(data.get("item", "")) == "bread":
-		_flash_hint("麵包送出了")
+		_flash_hint("%s送出了" % _Rules.item_name("bread"))
 	elif action == "gave":
 		_flash_hint("送出了")
 
@@ -1019,7 +1042,7 @@ func _pulse_needs(delta: float) -> void:
 		var label := labels[index]
 		if label == null:
 			continue
-		var low := index < _need_levels.size() and _need_levels[index] < _LOW_NEED
+		var low := index < _need_levels.size() and _need_is_low(int(_need_levels[index]))
 		label.modulate.a = alpha if low else 1.0
 
 

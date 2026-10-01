@@ -20,11 +20,9 @@ const TAIL_HALF_WIDTH := 8.0
 const TAIL_HEIGHT := 10.0
 const NAME_GAP := 2.0
 const SHEET_FPS := 8.0
-## Same cutoff as HUD and backend NEED_HUNGRY. Presentation only.
-const _HUNGRY_BELOW := 30
-## Matches backend EAT_FULLNESS_RESTORE.
-const _EAT_HUNGER := 35
 const _CHAT_SECONDS := 3.0
+const _Rules := preload("res://scripts/game_config.gd")
+const _Circle := preload("res://scripts/circle_points.gd")
 
 var server_position: Vector2 = Vector2.ZERO
 var visual_offset: Vector2 = Vector2.ZERO
@@ -81,7 +79,7 @@ func _ready() -> void:
 	_you_ring.closed = true
 	_you_ring.visible = false
 	_you_ring.z_index = 0
-	_you_ring.points = _circle_points(11.0, 16)
+	_you_ring.points = _Circle.points(11.0, 16)
 	add_child(_you_ring)
 	move_child(_you_ring, 0)
 	_you_arrow = Polygon2D.new()
@@ -192,14 +190,6 @@ func _show_you() -> void:
 		for child in fallback.get_children():
 			if child is Label:
 				(child as CanvasItem).visible = false
-
-
-func _circle_points(radius: float, count: int) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	for index in count:
-		var angle := TAU * float(index) / float(count)
-		points.append(Vector2(cos(angle), sin(angle)) * radius)
-	return points
 
 
 func set_stand_offset(offset: Vector2, snap: bool) -> void:
@@ -382,7 +372,7 @@ func react(action: String, item_id: String) -> void:
 	match action:
 		"ate":
 			_hop_up()
-			_float("+%d 飽食" % _EAT_HUNGER)
+			_float("+%d 飽食" % _Rules.eat_restore)
 		"picked_up":
 			_hop_up()
 			_float("+%s" % _item_name(item_id))
@@ -410,7 +400,7 @@ func _read_needs(data: Dictionary) -> void:
 	_hungry = false
 	var needs: Variant = data.get("needs", {})
 	if typeof(needs) == TYPE_DICTIONARY:
-		_hungry = int(needs.get("hunger", 100)) < _HUNGRY_BELOW
+		_hungry = _Rules.ready and int(needs.get("hunger", 100)) < _Rules.need_low
 
 
 func _refresh_status_emote() -> void:
@@ -486,15 +476,7 @@ func _float(text: String) -> void:
 
 
 func _item_name(item_id: String) -> String:
-	match item_id:
-		"bread":
-			return "麵包"
-		"wood":
-			return "木材"
-		"watering_can":
-			return "澆水壺"
-		_:
-			return item_id
+	return _Rules.item_name(item_id)
 
 
 func _dust_texture() -> Texture2D:

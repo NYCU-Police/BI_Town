@@ -8,7 +8,7 @@ Created/distributed by Kenney (www.kenney.nl).
 Creation date: 05-01-2019.
 Attribution is not required. If credited, use "Kenney" or www.kenney.nl.
 
-tilemap.png is Tilemap/tilemap.png from that pack.
+The painted town came from Tilemap/tilemap.png in that pack. The png itself is not in this repo.
 Tiles are 16×16 with 1px spacing and no margin.
 Roads, sidewalks, grass, buildings, trees, benches, lamps,
 and flower beds all come from this sheet.

@@ -163,6 +163,42 @@ class SessionMessage(BaseModel):
     player_token: str
 
 
+class GameConfigPoi(BaseModel):
+    id: str
+    name: str
+    x: float
+    y: float
+
+
+class GameConfigItem(BaseModel):
+    id: str
+    name: str
+    food: bool
+
+
+class GameConfig(BaseModel):
+    """一局內不變的規則與內容。
+
+    居民與玩家 Agent 不在這裡，由 world_snapshot 與後續廣播送出。
+    version 從 1 起算。格式有不相容變更時必須遞增。
+    不相容指舊客戶端無法再讀：刪除或改名欄位，或欄位意義改了。
+    只新增欄位不必遞增。
+    """
+
+    version: int
+    pois: list[GameConfigPoi]
+    poi_pick_radius: float
+    agent_pick_radius: float
+    need_low: int
+    eat_restore: int
+    items: list[GameConfigItem]
+
+
+class GameConfigMessage(BaseModel):
+    type: Literal["game_config"] = "game_config"
+    data: GameConfig
+
+
 class DialogueResultMessage(BaseModel):
     type: Literal["dialogue_result"] = "dialogue_result"
     client_seq: int

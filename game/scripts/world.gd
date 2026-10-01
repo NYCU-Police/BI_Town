@@ -1,23 +1,8 @@
 extends Node2D
 
 const _Places := preload("res://scripts/place_names.gd")
-
-## Must match backend/app/simulation/poi.py. These points are the ground
-## in front of each door, so an idle resident stands on them as-is.
-const POIS := {
-	"mina_home": Vector2(56, 96),
-	"alex_home": Vector2(168, 96),
-	"rin_home": Vector2(280, 96),
-	"cafe": Vector2(392, 96),
-	"store": Vector2(504, 96),
-	"office": Vector2(56, 144),
-	"library": Vector2(168, 144),
-	"plaza": Vector2(280, 192),
-	"park": Vector2(392, 320),
-}
-
-const POI_PICK_RADIUS := 56.0
-const AGENT_PICK_RADIUS := 36.0
+const _Rules := preload("res://scripts/game_config.gd")
+const _Circle := preload("res://scripts/circle_points.gd")
 
 @export var npc_scene: PackedScene
 
@@ -30,38 +15,80 @@ var _destination_mark: Node2D
 var _place_labels: Dictionary = {}
 var _show_content_ids := false
 var _notice_label: Label
+var _link_up := false
+var _configured := false
 
 
-func _ready() -> void:
-	texture_filter = TEXTURE_FILTER_NEAREST
+func playable() -> bool:
+	return _link_up and _configured
+
+
+func set_link_up(online: bool) -> void:
+	_link_up = online
+	if not online:
+		_configured = false
+
+
+func apply_game_config(data: Dictionary) -> bool:
+	if not _Rules.apply(data):
+		return false
 	var pois_root := get_node_or_null("POIs")
 	if pois_root == null:
 		push_error("World is missing the POIs node")
-		return
-	for poi_id in POIS:
-		var node := pois_root.get_node_or_null(poi_id) as Node2D
+		return false
+	var seen := {}
+	for poi_id in _Rules.place_ids():
+		var place_id := str(poi_id)
+		seen[place_id] = true
+		var node := pois_root.get_node_or_null(place_id) as Node2D
 		if node == null:
 			node = Node2D.new()
-			node.name = poi_id
+			node.name = place_id
 			pois_root.add_child(node)
-		node.position = POIS[poi_id]
+		node.position = _Rules.place_position(place_id)
 		var sprite := node.get_node_or_null("Sprite") as Sprite2D
 		if sprite == null:
 			sprite = Sprite2D.new()
 			sprite.name = "Sprite"
 			node.add_child(sprite)
-		sprite.texture_filter = TEXTURE_FILTER_NEAREST
-		VisualBinder.apply(sprite, node, "poi.%s" % poi_id)
-		_place_labels[poi_id] = _make_place_label(poi_id)
-		var ring := Line2D.new()
-		ring.name = "HoverRing"
-		ring.width = 2.0
-		ring.closed = true
-		ring.visible = false
-		ring.default_color = _ui_color("poi_ring")
-		ring.points = _circle_points(18.0, 20)
-		node.add_child(ring)
+			sprite.texture_filter = TEXTURE_FILTER_NEAREST
+			VisualBinder.apply(sprite, node, "poi.%s" % place_id)
+		var ring := node.get_node_or_null("HoverRing") as Line2D
+		if ring == null:
+			ring = Line2D.new()
+			ring.name = "HoverRing"
+			ring.width = 2.0
+			ring.closed = true
+			ring.visible = false
+			ring.default_color = _ui_color("poi_ring")
+			ring.points = _Circle.points(18.0, 20)
+			node.add_child(ring)
+		if _place_labels.has(place_id):
+			var existing := _place_labels[place_id] as Label
+			if existing != null:
+				existing.position = _Rules.place_position(place_id) + Vector2(-60, -68)
+				existing.text = _place_caption(place_id)
+		else:
+			_place_labels[place_id] = _make_place_label(place_id)
+	for child in pois_root.get_children():
+		if seen.has(str(child.name)):
+			continue
+		if _place_labels.has(child.name):
+			var stale: Node = _place_labels[child.name]
+			_place_labels.erase(child.name)
+			stale.queue_free()
+		child.queue_free()
 	_place_cafe_bread()
+	_position_notice()
+	_configured = _link_up
+	var camera := get_node_or_null("Camera")
+	if camera != null and camera.has_method("frame_once") and _Rules.has_place("plaza"):
+		camera.frame_once(_Rules.place_position("plaza"))
+	return true
+
+
+func _ready() -> void:
+	texture_filter = TEXTURE_FILTER_NEAREST
 	_hover_label = Label.new()
 	_hover_label.name = "PoiHover"
 	_hover_label.visible = false
@@ -78,7 +105,6 @@ func _ready() -> void:
 	_notice_label.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_notice_label.z_index = 30
 	_notice_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_notice_label.position = POIS["plaza"] + Vector2(-110, 18)
 	_notice_label.size = Vector2(220, 48)
 	_notice_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_notice_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -101,8 +127,10 @@ func _process(_delta: float) -> void:
 
 
 func agent_at(world_pos: Vector2) -> String:
+	if not _Rules.ready:
+		return ""
 	var nearest := ""
-	var best := AGENT_PICK_RADIUS
+	var best := _Rules.agent_pick_radius
 	for agent_id in _npcs:
 		var npc := _npcs[agent_id] as Node2D
 		if npc == null:
@@ -115,21 +143,24 @@ func agent_at(world_pos: Vector2) -> String:
 
 
 func poi_at(world_pos: Vector2) -> String:
+	if not _Rules.ready:
+		return ""
 	var nearest := ""
-	var best := POI_PICK_RADIUS
-	for poi_id in POIS:
-		var distance := world_pos.distance_to(POIS[poi_id])
+	var best := _Rules.poi_pick_radius
+	for poi_id in _Rules.place_ids():
+		var place_id := str(poi_id)
+		var distance := world_pos.distance_to(_Rules.place_position(place_id))
 		if distance <= best:
 			best = distance
-			nearest = poi_id
+			nearest = place_id
 	return nearest
 
 
 func show_destination(poi_id: String) -> void:
-	if not POIS.has(poi_id):
+	if not _Rules.has_place(poi_id):
 		return
 	_destination = poi_id
-	_destination_mark.position = POIS[poi_id]
+	_destination_mark.position = _Rules.place_position(poi_id)
 	_destination_mark.visible = true
 
 
@@ -153,6 +184,13 @@ func _sync_clock(data: Dictionary) -> void:
 func set_notice(text: String) -> void:
 	if _notice_label != null:
 		_notice_label.text = text
+		_position_notice()
+
+
+func _position_notice() -> void:
+	if _notice_label == null or not _Rules.has_place("plaza"):
+		return
+	_notice_label.position = _Rules.place_position("plaza") + Vector2(-110, 18)
 
 
 func apply_snapshot(data: Dictionary) -> void:
@@ -225,7 +263,7 @@ func present_event(data: Dictionary) -> void:
 
 func _place_cafe_bread() -> void:
 	var cafe := get_node_or_null("POIs/cafe") as Node2D
-	if cafe == null:
+	if cafe == null or cafe.get_node_or_null("Bread") != null:
 		return
 	var host := Node2D.new()
 	host.name = "Bread"
@@ -399,7 +437,7 @@ func _set_hover(poi_id: String) -> void:
 	if sprite != null:
 		sprite.modulate = _ui_color("poi_hover")
 	_hover_label.text = _place_caption(poi_id)
-	var anchor: Vector2 = POIS[poi_id]
+	var anchor := _Rules.place_position(poi_id)
 	_hover_label.position = anchor + Vector2(-60, -54)
 	_hover_label.visible = true
 
@@ -426,7 +464,7 @@ func _make_place_label(poi_id: String) -> Label:
 	label.z_index = 30
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.text = _place_caption(poi_id)
-	label.position = POIS[poi_id] + Vector2(-60, -68)
+	label.position = _Rules.place_position(poi_id) + Vector2(-60, -68)
 	label.size = Vector2(120, 16)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_style_map_label(label)
@@ -475,10 +513,3 @@ func _make_destination_mark() -> Node2D:
 	mark.add_child(pin)
 	return mark
 
-
-func _circle_points(radius: float, count: int) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	for index in count:
-		var angle := TAU * float(index) / float(count)
-		points.append(Vector2(cos(angle), sin(angle)) * radius)
-	return points

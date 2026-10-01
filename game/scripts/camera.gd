@@ -14,6 +14,7 @@ var _zoom_level := DEFAULT_ZOOM
 var _following := true
 var _dragging := false
 var _drag_moved := false
+var _framed := false
 var _press_pos := Vector2.ZERO
 var _tween: Tween
 
@@ -28,11 +29,14 @@ func _ready() -> void:
 		)
 	zoom = Vector2(float(DEFAULT_ZOOM), float(DEFAULT_ZOOM))
 	_zoom_level = DEFAULT_ZOOM
-	var world := get_parent()
-	if world != null and world.get("POIS") is Dictionary:
-		var pois: Dictionary = world.POIS
-		if pois.has("plaza"):
-			position = _frame_on_player(pois["plaza"])
+
+
+func frame_once(world_pos: Vector2) -> void:
+	if _framed:
+		return
+	_framed = true
+	_following = true
+	position = _clamp_position(_frame_on_player(world_pos))
 
 
 func _process(_delta: float) -> void:
@@ -45,6 +49,9 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	var world := get_parent()
+	if world != null and world.has_method("playable") and not world.playable():
+		return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo and key.keycode == KEY_SPACE:

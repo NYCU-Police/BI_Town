@@ -202,7 +202,7 @@ Cloudflare Tunnel → https://bitown.aicanhelp.app
 Mina 行程（只在 `rules`）：08:00 cafe、09:00 office、12:00 cafe、13:00 office、18:00 park、20:00 home。
 Alex 行程：約晚 30 分鐘；12:00 去 park（Mina 是 cafe）。行程裡的 `home` 會解析成 `home_for` 的那一戶。定義在 `backend/app/simulation/fake_agent.py`。
 
-POI 座標（`backend/app/simulation/poi.py`、`game/scripts/world.gd`、`game/scenes/world.tscn` 三處必須一致）：
+POI 座標只在 `backend/app/simulation/poi.py`。連線時隨 `game_config` 送給客戶端，`world.gd` 依這份設定建立地點節點。`world.tscn` 不再寫座標：
 
 | id | 座標 |
 | --- | --- |
@@ -333,7 +333,7 @@ Godot 4.7 專案。主場景 `scenes/main.tscn`。視窗 1280×720。
 - 新的數字與開關放 `backend/app/config.py`，不要散落在 route 或 simulation。
 - Python 3.12，函式加 type hints。Lint 用 ruff（見 `ruff.toml`）。測試用 pytest，世界狀態用 `reset_world()`，不要靠測試間殘留狀態。
 - 測試會把 `SIMULATION_LOOP_ENABLED` 設為 `False`，避免背景 tick 干擾。
-- Godot 的 POI 座標要與 `backend/app/simulation/poi.py` 相同。`world.gd` 在 `_ready` 會對不上就 `push_error`。
+- Godot 的地點、點選半徑、需求門檻與物品顯示名來自 `game_config`，不要在腳本裡再寫一份。
 - 不 commit secrets。`.env` 與 `deploy/.env` 不進 git。staging 的 `TUNNEL_TOKEN`、Tailscale、SSH 只在 GitHub environment `staging` 與 host 上。
 - WebSocket 雙向只接受 `intent`。模擬結果仍只由伺服器決定；客戶端不能直接改座標或需求。見 `docs/ADR/0005-bidirectional-websocket.md`。
 
