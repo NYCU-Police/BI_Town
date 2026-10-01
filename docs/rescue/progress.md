@@ -35,7 +35,7 @@
 
 ### 回滾
 
-合併後若 staging 起不來，revert **這個 PR 的 merge commit**（GitHub 上對該 PR 按 Revert，再開一個 revert PR）。不要在 `main` 上直接改，也不要 SSH 進主機改映像或 `deploy/.env`。
+合併後若 staging 起不來，revert **PR #45**（https://github.com/NYCU-Police/BI_Town/pull/45）的 merge commit。在 GitHub 對該 PR 按 Revert，再開一個 revert PR。不要在 `main` 上直接改，也不要 SSH 進主機改映像或 `deploy/.env`。
 
 revert PR 的 CI 全綠後，現有的 deploy workflow 會用舊的 `requirements.txt` 與 `pip install` 重建映像。後端測試與 Docker build 大約數分鐘，Godot web export 是這條 CI 裡較慢的一段；部署健康檢查三段各最多 60 秒。從 revert PR 合併算起，大約 15 分鐘可以回到舊安裝方式。runner 排隊會更久。
 
