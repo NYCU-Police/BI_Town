@@ -1,11 +1,6 @@
 extends Node
 
-const _FOOD := {"bread": true}
-const _NAMES := {
-	"bread": "麵包",
-	"wood": "木材",
-	"watering_can": "澆水壺",
-}
+const _Rules := preload("res://scripts/game_config.gd")
 
 @onready var _network: Node = $"../NetworkClient"
 @onready var _world: Node2D = $"../World"
@@ -44,6 +39,8 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not _world.has_method("playable") or not _world.playable():
+		return
 	if event is InputEventMouseButton:
 		var click := event as InputEventMouseButton
 		if click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
@@ -133,13 +130,12 @@ func _reason_text(reason: String) -> String:
 		"not_holding":
 			return "手上沒有物品"
 		"wrong_place":
-			var tool_name := str(_NAMES.get(_last_item, ""))
-			if tool_name.is_empty():
+			if not _Rules.has_item(_last_item):
 				return "這個地點不能用這個工具"
-			return "這個地點不能用%s" % tool_name
+			return "這個地點不能用%s" % _Rules.item_name(_last_item)
 		"nothing_here":
 			if _last_action == "pick_up":
-				return "這裡沒有麵包"
+				return "這裡沒有%s" % _Rules.item_name("bread")
 			return "這裡沒有那樣東西"
 		"not_here":
 			if _last_action == "give" or _last_action == "talk" or _last_action == "present_evidence":
@@ -318,7 +314,7 @@ func _use_selected() -> void:
 		_last_action = "eat"
 		_show_local_reason("not_holding")
 		return
-	if not _FOOD.has(item_id):
+	if not _Rules.is_food(item_id):
 		_last_action = "eat"
 		_last_item = item_id
 		_show_local_reason("not_food")

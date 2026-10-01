@@ -8,12 +8,14 @@ from pydantic import ValidationError
 
 from app import config, state
 from app.models.schemas import (
+    GameConfigMessage,
     Intent,
     IntentResultMessage,
     SessionMessage,
     WorldEvent,
     WorldSnapshotMessage,
 )
+from app.simulation.game_config import build_game_config
 from app.simulation.player_talk import history_payload, note_ids, note_texts, open_token
 from app.websocket.broadcast import broadcast_changes
 from app.websocket.manager import manager
@@ -63,6 +65,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             entered = state.world.add_player(player_id)
         else:
             entered = None
+        await websocket.send_json(
+            GameConfigMessage(data=build_game_config()).model_dump()
+        )
         snapshot = state.world.snapshot()
         snapshot.you = player_id
         snapshot.dialogue_history = history_payload(state.world, token)

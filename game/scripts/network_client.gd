@@ -1,5 +1,6 @@
 extends Node
 
+signal game_config_received(data: Dictionary)
 signal snapshot_received(data: Dictionary)
 signal agent_updated(data: Dictionary)
 signal event_received(data: Dictionary)
@@ -159,6 +160,8 @@ func _handle_text(text: String) -> void:
 
 	var data: Dictionary = raw_data
 	match msg_type:
+		"game_config":
+			game_config_received.emit(data)
 		"world_snapshot":
 			snapshot_received.emit(data)
 		"agent_update":

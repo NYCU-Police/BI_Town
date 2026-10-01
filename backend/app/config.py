@@ -97,6 +97,15 @@ FOOD_ITEMS = frozenset({"bread"})
 TOOL_IDS = ("watering_can",)
 PARK_TOOL_ID = "watering_can"
 PARK_PRODUCT_ID = "wood"
+# Display copy and click radii. The server does not use the radii for movement.
+GAME_CONFIG_VERSION = 1
+POI_PICK_RADIUS = 56.0
+AGENT_PICK_RADIUS = 36.0
+ITEM_DISPLAY = (
+    ("bread", "麵包"),
+    ("wood", "木材"),
+    ("watering_can", "澆水壺"),
+)
 PLAYER_ENABLED = True
 INTENT_RATE_LIMIT_PER_SEC = 5
 INTENT_MAX_BYTES = 4096

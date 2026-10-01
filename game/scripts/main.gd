@@ -6,6 +6,7 @@ extends Node
 
 
 func _ready() -> void:
+	_network.game_config_received.connect(_on_game_config)
 	_network.snapshot_received.connect(_on_snapshot)
 	_network.agent_updated.connect(_on_agent_update)
 	_network.event_received.connect(_on_event)
@@ -18,6 +19,14 @@ func _ready() -> void:
 		_network.reveal_received.connect(_on_reveal)
 	if _network.has_signal("round_started"):
 		_network.round_started.connect(_on_round_started)
+
+
+func _on_game_config(data: Dictionary) -> void:
+	var accepted := true
+	if _world.has_method("apply_game_config"):
+		accepted = bool(_world.apply_game_config(data))
+	if accepted and _hud.has_method("mark_config_ready"):
+		_hud.mark_config_ready()
 
 
 func _on_snapshot(data: Dictionary) -> void:
@@ -78,4 +87,8 @@ func _on_event(data: Dictionary) -> void:
 
 
 func _on_connection(online: bool) -> void:
+	if not online and _hud.has_method("mark_config_waiting"):
+		_hud.mark_config_waiting()
+	if _world.has_method("set_link_up"):
+		_world.set_link_up(online)
 	_hud.set_connection(online)

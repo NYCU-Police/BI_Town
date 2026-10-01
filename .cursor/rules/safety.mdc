@@ -19,7 +19,7 @@ alwaysApply: true
 - 伺服器权威：所有模拟决策只在 backend。Godot 只渲染伺服器送来的状态，不推进时钟、不决定 NPC 行为
 - WebSocket 只有 server → client 方向，客户端讯息不得被解读为指令
 - 模拟相关数值放在 backend/app/config.py，不得散落魔法数字
-- POI 座标同时存在三处：backend/app/simulation/poi.py、game/scripts/world.gd、game/scenes/world.tscn。改一处必须同步三处
+- POI 座标只在 backend/app/simulation/poi.py，经 game_config 送给客户端。不要在 world.gd 或 world.tscn 再写一份
 - 后端只能有单一 uvicorn process，不得增加 worker（世界存在记忆体中，多 process 会分裂成多个世界）
 - PROJECT_STATUS.md 部分内容已过时，以程式码为准。若改动让文件失准，在同一个 PR 内更新文件
 
